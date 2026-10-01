@@ -1,0 +1,157 @@
+name: WorkerPay Windows Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout WorkerPay
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Compile check
+        shell: pwsh
+        run: |
+          python -m py_compile app.py
+
+      - name: Run logic test
+        shell: pwsh
+        run: |
+          python LOGIC_TEST.py
+
+      - name: Build WorkerPay EXE
+        shell: pwsh
+        run: |
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name WorkerPay app.py
+
+          if (-not (Test-Path "dist\WorkerPay.exe")) {
+            throw "WorkerPay.exe was not created."
+          }
+
+          Get-Item "dist\WorkerPay.exe" | Format-List FullName,Length
+
+      - name: Smoke test EXE
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path test-output | Out-Null
+
+          $env:WORKERPAY_TEST_OUTPUT = "$PWD\test-output\database-health.txt"
+
+          & ".\dist\WorkerPay.exe" --database-health-test
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "WorkerPay.exe database health test failed."
+          }
+
+          Get-Content "$PWD\test-output\database-health.txt"
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+
+          if (-not (Test-Path $iscc)) {
+            throw "Inno Setup compiler was not found."
+          }
+
+      - name: Create installer script
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release | Out-Null
+
+          @'
+          #define MyAppName "WorkerPay"
+          #define MyAppVersion "4.5.0"
+          #define MyAppPublisher "WorkerPay"
+          #define MyAppExeName "WorkerPay.exe"
+
+          [Setup]
+          AppId={{8D5E6D9C-2B3E-4F4C-9B6E-6A6A0E7D45B1}
+          AppName={#MyAppName}
+          AppVersion={#MyAppVersion}
+          AppPublisher={#MyAppPublisher}
+          DefaultDirName={autopf}\WorkerPay
+          DefaultGroupName=WorkerPay
+          OutputDir=release
+          OutputBaseFilename=WorkerPay-Setup
+          Compression=lzma
+          SolidCompression=yes
+          WizardStyle=modern
+          PrivilegesRequired=admin
+          UninstallDisplayName=WorkerPay
+          DisableProgramGroupPage=yes
+
+          [Files]
+          Source: "dist\WorkerPay.exe"; DestDir: "{app}"; Flags: ignoreversion
+
+          [Icons]
+          Name: "{autoprograms}\WorkerPay"; Filename: "{app}\WorkerPay.exe"
+          Name: "{autodesktop}\WorkerPay"; Filename: "{app}\WorkerPay.exe"
+
+          [Run]
+          Filename: "{app}\WorkerPay.exe"; Description: "Launch WorkerPay"; Flags: nowait postinstall skipifsilent
+          '@ | Set-Content -Path "WorkerPay.iss" -Encoding UTF8
+
+      - name: Build WorkerPay Setup
+        shell: pwsh
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "WorkerPay.iss"
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "Inno Setup compilation failed."
+          }
+
+          if (-not (Test-Path "release\WorkerPay-Setup.exe")) {
+            throw "WorkerPay-Setup.exe was not created."
+          }
+
+      - name: Create Portable ZIP
+        shell: pwsh
+        run: |
+          Compress-Archive `
+            -Path "dist\WorkerPay.exe" `
+            -DestinationPath "release\WorkerPay-Portable.zip" `
+            -Force
+
+      - name: Upload EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: WorkerPay-Windows-EXE
+          path: dist/WorkerPay.exe
+          if-no-files-found: error
+
+      - name: Upload Setup
+        uses: actions/upload-artifact@v4
+        with:
+          name: WorkerPay-Windows-Setup
+          path: release/WorkerPay-Setup.exe
+          if-no-files-found: error
+
+      - name: Upload Portable ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: WorkerPay-Windows-Portable
+          path: release/WorkerPay-Portable.zip
+          if-no-files-found: error
