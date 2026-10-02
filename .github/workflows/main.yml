@@ -58,12 +58,22 @@ jobs:
           $env:WORKERPAY_TEST_OUTPUT = "$PWD\test-output\database-health.txt"
 
           & ".\dist\WorkerPay.exe" --database-health-test
+          $exeExitCode = $LASTEXITCODE
 
-          if ($LASTEXITCODE -ne 0) {
-            throw "WorkerPay.exe database health test failed."
+          $reportPath = "$PWD\test-output\database-health.txt"
+
+          if (-not (Test-Path $reportPath)) {
+            throw "WorkerPay.exe did not produce the database health report. Exit code: $exeExitCode"
           }
 
-          Get-Content "$PWD\test-output\database-health.txt"
+          $report = Get-Content $reportPath -Raw
+          $report
+
+          if ($report -notmatch "RESULT:\s*PASS") {
+            throw "WorkerPay.exe database health test did not report PASS. Exit code: $exeExitCode"
+          }
+
+          Write-Host "WorkerPay EXE health report passed (process exit code: $exeExitCode)."
 
       - name: Install Inno Setup
         shell: pwsh
