@@ -62,8 +62,12 @@ jobs:
 
           $reportPath = "$PWD\test-output\database-health.txt"
 
+          for ($i = 0; $i -lt 30 -and -not (Test-Path $reportPath); $i++) {
+            Start-Sleep -Seconds 1
+          }
+
           if (-not (Test-Path $reportPath)) {
-            throw "WorkerPay.exe did not produce the database health report. Exit code: $exeExitCode"
+            throw "WorkerPay.exe did not produce the database health report within 30 seconds. Exit code: $exeExitCode"
           }
 
           $report = Get-Content $reportPath -Raw
