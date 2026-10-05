@@ -252,6 +252,7 @@ class WorkerPay(tk.Tk):
         self._default_vertical_target = None
         self._default_horizontal_target = None
         self._transition_job = None
+        self._transition_busy = False
         self._in_navigation = False
         self.bind_all('<Motion>', self._track_scroll_area, add='+')
         self.bind_all('<MouseWheel>', self._on_mousewheel, add='+')
@@ -449,6 +450,7 @@ class WorkerPay(tk.Tk):
         CREATE INDEX IF NOT EXISTS idx_payments_month ON payments(month);
         CREATE INDEX IF NOT EXISTS idx_advances_employee_date ON advances(employee_id,advance_date,id);
         CREATE INDEX IF NOT EXISTS idx_advances_date ON advances(advance_date);
+        CREATE INDEX IF NOT EXISTS idx_advances_reason ON advances(reason COLLATE NOCASE);
         CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at,id);
         CREATE INDEX IF NOT EXISTS idx_quarantine_time ON data_quarantine(quarantined_at,id);
         ''')
@@ -844,42 +846,87 @@ class WorkerPay(tk.Tk):
             try: self.destroy()
             except tk.TclError: pass
 
-    def navigate(self,target,duration=78,key=None):
+    def navigate(self,target,duration=1650,key=None):
+        """Build the destination first, then slide it in once from the right.
+
+        The old page remains underneath until the eased transition reaches 100%.
+        A busy guard prevents stacked/repeated animations and blank-frame flashes.
+        """
         old=getattr(self,'main',None)
         old_page=getattr(self,'_page_key',None)
         target_name=key or getattr(target,'__name__',repr(target))
+        if getattr(self,'_transition_busy',False):
+            return
         if old is not None and old_page==target_name and target_name:
             return
+        self._transition_busy=True
         self._in_navigation=True
         try:
             target()
+        except Exception:
+            self._in_navigation=False
+            self._transition_busy=False
+            raise
         finally:
             self._in_navigation=False
         new=getattr(self,'main',None)
         if new is old or new is None:
+            self._transition_busy=False
             return
         self._page_key=target_name
         try:self.update_idletasks()
         except Exception:pass
         self._animate_page_transition(old,new,duration)
 
-    def _animate_page_transition(self,old,new,duration=95):
-        # Put the new page directly over the old page before destroying the old
-        # frame. This removes the visible seam/gap produced by the old slide animation.
+    def _animate_page_transition(self,old,new,duration=1650):
         if self._transition_job is not None:
             try:self.after_cancel(self._transition_job)
             except Exception:pass
             self._transition_job=None
         try:
-            new.place_configure(relx=0,rely=0,relwidth=1,relheight=1)
-            new.lift()
-        except tk.TclError:return
-        def finish():
-            self._transition_job=None
+            total=max(0,min(2000,int(duration)))
+        except Exception:
+            total=1650
+        if total<=0:
             try:
+                new.place_configure(relx=0,rely=0,relwidth=1,relheight=1)
+                new.lift()
                 if old is not None and old.winfo_exists(): old.destroy()
-            except tk.TclError:pass
-        self._transition_job=self.after(max(35,min(65,int(duration))),finish)
+            except tk.TclError:
+                pass
+            self._transition_busy=False
+            return
+        try:
+            new.place_configure(relx=1.0,rely=0,relwidth=1,relheight=1)
+            new.lift()
+            self.update_idletasks()
+        except tk.TclError:
+            self._transition_busy=False
+            return
+        started=time.perf_counter()
+        def tick():
+            try:
+                if not new.winfo_exists():
+                    self._transition_job=None
+                    self._transition_busy=False
+                    return
+                elapsed_ms=(time.perf_counter()-started)*1000.0
+                t=max(0.0,min(1.0,elapsed_ms/float(total)))
+                eased=1.0-(1.0-t)**3
+                new.place_configure(relx=1.0-eased)
+                if t<1.0:
+                    self._transition_job=self.after(16,tick)
+                    return
+                new.place_configure(relx=0,rely=0,relwidth=1,relheight=1)
+                self.update_idletasks()
+                self._transition_job=None
+                self._transition_busy=False
+                if old is not None and old.winfo_exists():
+                    old.destroy()
+            except tk.TclError:
+                self._transition_job=None
+                self._transition_busy=False
+        self._transition_job=self.after(0,tick)
 
     # ---------- smooth/native scrolling ----------
     def _widget_alive(self,w):
@@ -985,15 +1032,16 @@ class WorkerPay(tk.Tk):
         side.pack_propagate(False)
         tk.Label(side, text=APP_NAME, bg='#0d0f13', fg='white', font=('Segoe UI', 21, 'bold')).pack(pady=(22, 4))
         tk.Label(side, text='Attendance • Plots • Salary', bg='#0d0f13', fg=MUTED, font=('Segoe UI', 9)).pack(pady=(0, 20))
-        for title, func in [
-            ('Dashboard', self.dashboard),
-            ('Employees', self.employees),
-            ('Salary / Filter', self.salary_filter),
-            ('Salary Payments', self.salary_payments),
-            ('Backup / Restore', self.backup),
-            ('Export / Print', self.export_print),
+        for title, func, key in [
+            ('Dashboard', self.dashboard, 'dashboard'),
+            ('Employees', self.employees, 'employees'),
+            ('Salary / Filter', self.salary_filter, 'salary_filter'),
+            ('Advance Money', self.advance_money, 'advance_money'),
+            ('Salary Payments', self.salary_payments, 'salary_payments'),
+            ('Backup / Restore', self.backup, 'backup'),
+            ('Export / Print', self.export_print, 'export_print'),
         ]:
-            tk.Button(side, text=title, command=lambda f=func: self.navigate(f), anchor='w', bg='#0d0f13', fg=TEXT,
+            tk.Button(side, text=title, command=lambda f=func, k=key: self.navigate(f, key=k), anchor='w', bg='#0d0f13', fg=TEXT,
                       activebackground=ACCENT, activeforeground='white', relief='flat', bd=0,
                       font=('Segoe UI', 11, 'bold'), padx=20, pady=12).pack(fill='x')
         tk.Label(side, text='F11  Custom Rules', bg='#0d0f13', fg='#8ab4ff',
@@ -1018,8 +1066,9 @@ class WorkerPay(tk.Tk):
             except Exception: pass
             old = None
         new = tk.Frame(self.page_host, bg=BG)
-        new.place(relx=0, rely=0, relwidth=1, relheight=1)
-        if getattr(self, '_in_navigation', False) and old is not None and old.winfo_exists():
+        starting_in_transition = bool(getattr(self, '_in_navigation', False) and old is not None and old.winfo_exists())
+        new.place(relx=1 if starting_in_transition else 0, rely=0, relwidth=1, relheight=1)
+        if starting_in_transition:
             try:new.lower(old)
             except tk.TclError:pass
         self.main = new
@@ -1895,48 +1944,296 @@ class WorkerPay(tk.Tk):
         month_entry.selection_range(0, 'end')
 
     def build_advance_section(self, parent, e, month):
+        """Employee-wide advance ledger with add/edit/delete and explicit save."""
         card=tk.Frame(parent,bg=PANEL,highlightbackground=BORDER,highlightthickness=1)
         card.pack(fill='x',pady=(14,12))
         tk.Label(card,text='ADVANCE MONEY — EMPLOYEE-WIDE',bg=PANEL,fg=TEXT,font=('Segoe UI',14,'bold')).pack(anchor='w',padx=14,pady=(12,2))
-        tk.Label(card,text="Record money given in advance for a specific reason. Date: DD.MM.YY. This is employee-wide (not plot-specific) and is deducted once from the employee's net salary for the selected month.",bg=PANEL,fg=MUTED,font=('Segoe UI',9),wraplength=900,justify='left').pack(anchor='w',padx=14,pady=(0,10))
+        tk.Label(card,text="Record money given in advance for this employee. Date: DD.MM.YY. Advances are employee-wide, not plot-specific, and are deducted once from the selected month's net salary.",bg=PANEL,fg=MUTED,font=('Segoe UI',9),wraplength=900,justify='left').pack(anchor='w',padx=14,pady=(0,10))
         form=tk.Frame(card,bg=PANEL2);form.pack(fill='x',padx=12,pady=(0,10))
         tk.Label(form,text='Date (DD.MM.YY)',bg=PANEL2,fg=MUTED,font=('Segoe UI',9,'bold')).grid(row=0,column=0,padx=(10,5),pady=(10,4),sticky='w')
-        date_var=tk.StringVar(value=f"01.{datetime.strptime(month+'-01','%Y-%m-%d').strftime('%m.%y')}");ttk.Entry(form,textvariable=date_var,width=13).grid(row=1,column=0,padx=(10,5),pady=(0,10),sticky='ew')
+        date_var=tk.StringVar(value=f"01.{datetime.strptime(month+'-01','%Y-%m-%d').strftime('%m.%y')}")
+        ttk.Entry(form,textvariable=date_var,width=13).grid(row=1,column=0,padx=(10,5),pady=(0,10),sticky='ew')
         tk.Label(form,text='Amount',bg=PANEL2,fg=MUTED,font=('Segoe UI',9,'bold')).grid(row=0,column=1,padx=5,pady=(10,4),sticky='w')
         amount_var=tk.StringVar();ttk.Entry(form,textvariable=amount_var,width=14).grid(row=1,column=1,padx=5,pady=(0,10),sticky='ew')
         tk.Label(form,text='Reason',bg=PANEL2,fg=MUTED,font=('Segoe UI',9,'bold')).grid(row=0,column=2,padx=5,pady=(10,4),sticky='w')
         reason_var=tk.StringVar();ttk.Entry(form,textvariable=reason_var).grid(row=1,column=2,padx=5,pady=(0,10),sticky='ew')
         form.grid_columnconfigure(2,weight=1)
+        state={'selected_id':None}
+
         table=tk.Frame(card,bg=PANEL);table.pack(fill='x',padx=12,pady=(0,8))
-        cols=('date','amount','reason','id');tree=ttk.Treeview(table,columns=cols,show='headings',height=5,displaycolumns=('date','amount','reason'))
-        for c,h,w,a in [('date','Date',120,'center'),('amount','Advance Amount',170,'e'),('reason','Reason',560,'w'),('id','',1,'center')]:tree.heading(c,text=h);tree.column(c,width=w,anchor=a,stretch=c=='reason')
-        sb=ModernScrollbar(table,command=tree.yview,orient='vertical',thickness=14);tree.configure(yscrollcommand=sb.set);tree.pack(side='left',fill='both',expand=True);sb.pack(side='right',fill='y',padx=(4,0));self.register_scroll_area(table,tree,'y')
+        cols=('date','amount','reason','id')
+        tree=ttk.Treeview(table,columns=cols,show='headings',height=5,displaycolumns=('date','amount','reason'))
+        for c,h,w,a in [('date','Date',120,'center'),('amount','Advance Amount',170,'e'),('reason','Reason',560,'w'),('id','',1,'center')]:
+            tree.heading(c,text=h);tree.column(c,width=w,anchor=a,stretch=c=='reason')
+        sb=ModernScrollbar(table,command=tree.yview,orient='vertical',thickness=14)
+        tree.configure(yscrollcommand=sb.set);tree.pack(side='left',fill='both',expand=True);sb.pack(side='right',fill='y',padx=(4,0));self.register_scroll_area(table,tree,'y')
         total_lbl=tk.Label(card,text='',bg=PANEL,fg='#8ab4ff',font=('Segoe UI',11,'bold'));total_lbl.pack(anchor='e',padx=16,pady=(0,12))
-        def refresh():
-            tree.delete(*tree.get_children()); total=0.0
-            for r in self.advance_rows(e['id'],month):
-                amount=float(r['amount']); total+=amount; tree.insert('', 'end',iid=str(r['id']),values=(self.display_advance_date(r['advance_date']),f'৳{amount:,.2f}',r['reason'],str(r['id'])))
-            total_lbl.config(text=f'Total advance for {month}: ৳{total:,.2f}')
-        def add_advance():
-            try:
-                dt=datetime.strptime(date_var.get().strip(),'%d.%m.%y').date()
-                if dt.strftime('%Y-%m')!=month: raise ValueError(f'Advance date must be inside the selected month ({month}).')
-                amount=safe_float(amount_var.get(),'Advance amount')
-                if amount<=0: raise ValueError('Advance amount must be greater than 0.')
-                reason=reason_var.get().strip()
-                if not reason: raise ValueError('Reason is required for an advance.')
-                self.db.execute('INSERT INTO advances(employee_id,advance_date,amount,reason,created_at) VALUES(?,?,?,?,?)',(e['id'],dt.isoformat(),amount,reason,datetime.now().isoformat(timespec='seconds')))
-                self.audit('ADD_ADVANCE','advance',e['id'],{'date':dt.isoformat(),'amount':amount,'reason':reason});self.db.commit();amount_var.set('');reason_var.set('');refresh()
-            except Exception as ex: messagebox.showerror('Advance Money',str(ex),parent=self)
-        def delete_advance():
+
+        def clear_form():
+            state['selected_id']=None
+            date_var.set(f"01.{datetime.strptime(month+'-01','%Y-%m-%d').strftime('%m.%y')}")
+            amount_var.set('');reason_var.set('')
+            tree.selection_remove(tree.selection())
+
+        def load_selected(_event=None):
             sel=tree.selection()
             if not sel:return
             rid=int(sel[0]);row=self.db.execute('SELECT * FROM advances WHERE id=? AND employee_id=?',(rid,e['id'])).fetchone()
             if not row:return
+            state['selected_id']=rid
+            date_var.set(self.display_advance_date(row['advance_date']))
+            amount_var.set(f"{float(row['amount']):g}")
+            reason_var.set(row['reason'] or '')
+
+        def refresh():
+            tree.delete(*tree.get_children());total=0.0
+            for r in self.advance_rows(e['id'],month):
+                amount=float(r['amount']);total+=amount
+                tree.insert('', 'end', iid=str(r['id']), values=(self.display_advance_date(r['advance_date']),f'৳{amount:,.2f}',r['reason'],str(r['id'])))
+            total_lbl.config(text=f'Total advance for {month}: ৳{total:,.2f}')
+            if state['selected_id'] is not None and not tree.exists(str(state['selected_id'])):
+                clear_form()
+
+        def validate_form():
+            dt=datetime.strptime(date_var.get().strip(),'%d.%m.%y').date()
+            if dt.strftime('%Y-%m')!=month:
+                raise ValueError(f'Advance date must be inside the selected month ({month}).')
+            amount=safe_float(amount_var.get(),'Advance amount')
+            if amount<=0:raise ValueError('Advance amount must be greater than 0.')
+            reason=reason_var.get().strip()
+            if not reason:raise ValueError('Reason is required for an advance.')
+            return dt,amount,reason
+
+        def add_advance():
+            try:
+                dt,amount,reason=validate_form()
+                self.db.execute('INSERT INTO advances(employee_id,advance_date,amount,reason,created_at) VALUES(?,?,?,?,?)',
+                                (e['id'],dt.isoformat(),amount,reason,datetime.now().isoformat(timespec='seconds')))
+                self.audit('ADD_ADVANCE','advance',e['id'],{'date':dt.isoformat(),'amount':amount,'reason':reason})
+                self.db.commit();clear_form();refresh()
+            except Exception as ex:
+                self.db.rollback()
+                messagebox.showerror('Advance Money',str(ex),parent=self)
+
+        def edit_selected():
+            if state['selected_id'] is None:
+                messagebox.showwarning('Advance Money','Select an advance record first.',parent=self);return
+            try:
+                row=self.db.execute('SELECT * FROM advances WHERE id=? AND employee_id=?',(state['selected_id'],e['id'])).fetchone()
+                if not row:raise ValueError('The selected advance no longer exists.')
+                dt,amount,reason=validate_form()
+                old_data={'date':row['advance_date'],'amount':float(row['amount']),'reason':row['reason']}
+                self.db.execute('UPDATE advances SET advance_date=?,amount=?,reason=? WHERE id=? AND employee_id=?',
+                                (dt.isoformat(),amount,reason,state['selected_id'],e['id']))
+                self.audit('EDIT_ADVANCE','advance',state['selected_id'],{'employee_id':e['id'],'before':old_data,'after':{'date':dt.isoformat(),'amount':amount,'reason':reason}})
+                self.db.commit();refresh()
+            except Exception as ex:
+                self.db.rollback()
+                messagebox.showerror('Advance Money',str(ex),parent=self)
+
+        def delete_selected():
+            rid=state['selected_id']
+            if rid is None:
+                sel=tree.selection()
+                if sel:rid=int(sel[0])
+            if rid is None:return
+            row=self.db.execute('SELECT * FROM advances WHERE id=? AND employee_id=?',(rid,e['id'])).fetchone()
+            if not row:return
             if not messagebox.askyesno('Delete Advance',f"Delete advance ৳{float(row['amount']):,.2f} dated {self.display_advance_date(row['advance_date'])}?",parent=self):return
-            self.db.execute('DELETE FROM advances WHERE id=?',(rid,));self.audit('DELETE_ADVANCE','advance',rid,{'employee_id':e['id']});self.db.commit();refresh()
-        actions=tk.Frame(form,bg=PANEL2);actions.grid(row=1,column=3,padx=(5,10),pady=(0,10),sticky='e');ttk.Button(actions,text='ADD ADVANCE',style='Accent.TButton',command=add_advance).pack(side='left',padx=3);ttk.Button(actions,text='DELETE SELECTED',command=delete_advance).pack(side='left',padx=3)
+            try:
+                self.db.execute('DELETE FROM advances WHERE id=? AND employee_id=?',(rid,e['id']))
+                self.audit('DELETE_ADVANCE','advance',rid,{'employee_id':e['id'],'date':row['advance_date'],'amount':float(row['amount']),'reason':row['reason']})
+                self.db.commit();clear_form();refresh()
+            except Exception as ex:
+                self.db.rollback();messagebox.showerror('Advance Money',str(ex),parent=self)
+
+        actions=tk.Frame(form,bg=PANEL2);actions.grid(row=1,column=3,padx=(5,10),pady=(0,10),sticky='e')
+        for label,cmd,style in [
+            ('ADD ADVANCE',add_advance,'Accent.TButton'),
+            ('EDIT SELECTED',edit_selected,None),
+            ('DELETE SELECTED',delete_selected,None),
+            ('CANCEL',clear_form,None),
+            ('SAVE CHANGES',edit_selected,'Accent.TButton'),
+        ]:
+            ttk.Button(actions,text=label,command=cmd,style=style or 'TButton').pack(side='left',padx=3)
+        tree.bind('<<TreeviewSelect>>',load_selected)
+        tree.bind('<Double-1>',load_selected)
         refresh()
+
+    def advance_money(self):
+        """Dedicated employee-wide advance ledger with fast filtering and full CRUD."""
+        self.clear()
+        self.header('Advance Money','Employee-wide advance records. Filter, review, add, edit, or delete advance payments without affecting plot attendance history.')
+
+        filters=tk.Frame(self.main,bg=PANEL,highlightbackground=BORDER,highlightthickness=1)
+        filters.pack(fill='x',padx=26,pady=(6,8))
+        vars={k:tk.StringVar() for k in ('date_from','date_to','name','empid','reason','min','max')}
+
+        labels=[('date_from','Date From'),('date_to','Date To'),('name','Name'),('empid','Employee ID'),('reason','Reason'),('min','Minimum Amount'),('max','Maximum Amount')]
+        for i,(key,label) in enumerate(labels):
+            tk.Label(filters,text=label,bg=PANEL,fg=MUTED,font=('Segoe UI',9,'bold')).grid(row=0,column=i,padx=5,pady=(10,3),sticky='w')
+            width=12 if key in ('date_from','date_to') else 15
+            ttk.Entry(filters,textvariable=vars[key],width=width).grid(row=1,column=i,padx=5,pady=(0,10),sticky='ew')
+            filters.grid_columnconfigure(i,weight=1)
+
+        body=tk.Frame(self.main,bg=BG);body.pack(fill='both',expand=True,padx=(26,0),pady=4)
+        table_frame=tk.Frame(body,bg=PANEL);table_frame.pack(fill='both',expand=True)
+        cols=('date','empid','name','amount','reason','id')
+        tree=ttk.Treeview(table_frame,columns=cols,show='headings',displaycolumns=('date','empid','name','amount','reason'))
+        for c,h,w,a in [
+            ('date','Date',105,'center'),('empid','Employee ID',115,'center'),('name','Employee Name',210,'w'),
+            ('amount','Advance Amount',145,'e'),('reason','Reason',430,'w'),('id','',1,'center')
+        ]:
+            tree.heading(c,text=h);tree.column(c,width=w,anchor=a,stretch=c=='reason')
+        sb=ModernScrollbar(table_frame,command=tree.yview,orient='vertical',thickness=15)
+        tree.configure(yscrollcommand=sb.set);tree.pack(side='left',fill='both',expand=True);sb.pack(side='right',fill='y',padx=(4,6),pady=4)
+        self.register_scroll_area(table_frame,tree,'y')
+
+        footer=tk.Frame(self.main,bg=BG);footer.pack(fill='x',padx=26,pady=(4,8))
+        result_lbl=tk.Label(footer,text='',bg=BG,fg='#8ab4ff',font=('Segoe UI',10,'bold'));result_lbl.pack(side='left')
+
+        form=tk.Frame(self.main,bg=PANEL,highlightbackground=BORDER,highlightthickness=1);form.pack(fill='x',padx=26,pady=(0,18))
+        form_vars={k:tk.StringVar() for k in ('empid','name','date','amount','reason')}
+        tk.Label(form,text='Employee ID',bg=PANEL,fg=MUTED,font=('Segoe UI',9,'bold')).grid(row=0,column=0,padx=(12,5),pady=(10,3),sticky='w')
+        emp_entry=ttk.Entry(form,textvariable=form_vars['empid'],width=15);emp_entry.grid(row=1,column=0,padx=(12,5),pady=(0,12))
+        tk.Label(form,text='Employee Name',bg=PANEL,fg=MUTED,font=('Segoe UI',9,'bold')).grid(row=0,column=1,padx=5,pady=(10,3),sticky='w')
+        ttk.Entry(form,textvariable=form_vars['name'],width=24,state='readonly').grid(row=1,column=1,padx=5,pady=(0,12))
+        tk.Label(form,text='Date (DD.MM.YY)',bg=PANEL,fg=MUTED,font=('Segoe UI',9,'bold')).grid(row=0,column=2,padx=5,pady=(10,3),sticky='w')
+        ttk.Entry(form,textvariable=form_vars['date'],width=14).grid(row=1,column=2,padx=5,pady=(0,12))
+        tk.Label(form,text='Advance Amount',bg=PANEL,fg=MUTED,font=('Segoe UI',9,'bold')).grid(row=0,column=3,padx=5,pady=(10,3),sticky='w')
+        ttk.Entry(form,textvariable=form_vars['amount'],width=15).grid(row=1,column=3,padx=5,pady=(0,12))
+        tk.Label(form,text='Reason',bg=PANEL,fg=MUTED,font=('Segoe UI',9,'bold')).grid(row=0,column=4,padx=5,pady=(10,3),sticky='w')
+        ttk.Entry(form,textvariable=form_vars['reason'],width=28).grid(row=1,column=4,padx=5,pady=(0,12))
+        actions=tk.Frame(form,bg=PANEL);actions.grid(row=1,column=5,padx=(5,12),pady=(0,12),sticky='e')
+        form_state={'selected_id':None}
+
+        def clear_form():
+            form_state['selected_id']=None
+            form_vars['empid'].set('');form_vars['name'].set('')
+            form_vars['date'].set(datetime.now().strftime('%d.%m.%y'));form_vars['amount'].set('');form_vars['reason'].set('')
+            tree.selection_remove(tree.selection())
+
+        def employee_from_id():
+            raw=form_vars['empid'].get().strip()
+            if not raw:
+                form_vars['name'].set('');return None
+            empid=self.normalize_employee_id(raw)
+            row=self.db.execute('SELECT * FROM employees WHERE empid=? OR CAST(emp_number AS TEXT)=? LIMIT 1',(empid,raw)).fetchone()
+            form_vars['name'].set(row['name'] if row else '')
+            return row
+
+        def validate_form():
+            row=employee_from_id()
+            if row is None:raise ValueError('Enter a valid Employee ID.')
+            dt=datetime.strptime(form_vars['date'].get().strip(),'%d.%m.%y').date()
+            amount=safe_float(form_vars['amount'].get(),'Advance amount')
+            if amount<=0:raise ValueError('Advance amount must be greater than 0.')
+            reason=form_vars['reason'].get().strip()
+            if not reason:raise ValueError('Reason is required for an advance.')
+            return row,dt,amount,reason
+
+        def refresh():
+            for iid in tree.get_children():tree.delete(iid)
+            clauses=[];params=[]
+            def date_value(key):
+                raw=vars[key].get().strip()
+                if not raw:return None
+                return datetime.strptime(raw,'%d.%m.%y').date().isoformat()
+            try:
+                df=date_value('date_from');dt=date_value('date_to')
+                if df:clauses.append('a.advance_date>=?');params.append(df)
+                if dt:clauses.append('a.advance_date<=?');params.append(dt)
+                name=vars['name'].get().strip()
+                if name:clauses.append('e.name LIKE ? COLLATE NOCASE');params.append('%'+name+'%')
+                empraw=vars['empid'].get().strip()
+                if empraw:
+                    empnorm=self.normalize_employee_id(empraw)
+                    clauses.append('(e.empid=? OR CAST(e.emp_number AS TEXT)=?)');params.extend([empnorm,empraw])
+                reason=vars['reason'].get().strip()
+                if reason:clauses.append('a.reason LIKE ? COLLATE NOCASE');params.append('%'+reason+'%')
+                if vars['min'].get().strip():
+                    clauses.append('a.amount>=?');params.append(safe_float(vars['min'].get(),'Minimum amount'))
+                if vars['max'].get().strip():
+                    clauses.append('a.amount<=?');params.append(safe_float(vars['max'].get(),'Maximum amount'))
+                sql='SELECT a.id,a.advance_date,a.amount,a.reason,e.empid,e.name FROM advances a JOIN employees e ON e.id=a.employee_id'
+                if clauses:sql+=' WHERE '+' AND '.join(clauses)
+                sql+=' ORDER BY a.advance_date DESC,e.emp_number,e.id,a.id DESC'
+                rows=self.db.execute(sql,params).fetchall()
+                total=0.0
+                for r in rows:
+                    amount=float(r['amount']);total+=amount
+                    tree.insert('', 'end', iid=str(r['id']), values=(self.display_advance_date(r['advance_date']),r['empid'],r['name'],f'৳{amount:,.2f}',r['reason'],str(r['id'])))
+                result_lbl.config(text=f'{len(rows):,} record(s) • Filtered total: ৳{total:,.2f}')
+            except Exception as ex:
+                result_lbl.config(text=f'Filter error: {ex}',fg=RED)
+                return
+            result_lbl.config(fg='#8ab4ff')
+
+        def load_selected(_event=None):
+            sel=tree.selection()
+            if not sel:return
+            rid=int(sel[0]);row=self.db.execute('SELECT a.*,e.empid,e.name FROM advances a JOIN employees e ON e.id=a.employee_id WHERE a.id=?',(rid,)).fetchone()
+            if not row:return
+            form_state['selected_id']=rid
+            form_vars['empid'].set(row['empid']);form_vars['name'].set(row['name'])
+            form_vars['date'].set(self.display_advance_date(row['advance_date']))
+            form_vars['amount'].set(f"{float(row['amount']):g}");form_vars['reason'].set(row['reason'] or '')
+
+        def add_advance():
+            try:
+                row,dt,amount,reason=validate_form()
+                self.db.execute('INSERT INTO advances(employee_id,advance_date,amount,reason,created_at) VALUES(?,?,?,?,?)',
+                                (row['id'],dt.isoformat(),amount,reason,datetime.now().isoformat(timespec='seconds')))
+                self.audit('ADD_ADVANCE','advance',row['id'],{'date':dt.isoformat(),'amount':amount,'reason':reason})
+                self.db.commit();refresh();clear_form()
+            except Exception as ex:
+                self.db.rollback();messagebox.showerror('Advance Money',str(ex),parent=self)
+
+        def edit_selected():
+            rid=form_state['selected_id']
+            if rid is None:
+                sel=tree.selection()
+                if sel:rid=int(sel[0])
+            if rid is None:
+                messagebox.showwarning('Advance Money','Select an advance record first.',parent=self);return
+            try:
+                row,dt,amount,reason=validate_form()
+                old=self.db.execute('SELECT * FROM advances WHERE id=?',(rid,)).fetchone()
+                if old is None:raise ValueError('The selected advance no longer exists.')
+                self.db.execute('UPDATE advances SET employee_id=?,advance_date=?,amount=?,reason=? WHERE id=?',
+                                (row['id'],dt.isoformat(),amount,reason,rid))
+                self.audit('EDIT_ADVANCE','advance',rid,{'before':{'employee_id':old['employee_id'],'date':old['advance_date'],'amount':float(old['amount']),'reason':old['reason']},'after':{'employee_id':row['id'],'date':dt.isoformat(),'amount':amount,'reason':reason}})
+                self.db.commit();refresh()
+            except Exception as ex:
+                self.db.rollback();messagebox.showerror('Advance Money',str(ex),parent=self)
+
+        def delete_selected():
+            rid=form_state['selected_id']
+            if rid is None:
+                sel=tree.selection()
+                if sel:rid=int(sel[0])
+            if rid is None:return
+            row=self.db.execute('SELECT a.*,e.empid,e.name FROM advances a JOIN employees e ON e.id=a.employee_id WHERE a.id=?',(rid,)).fetchone()
+            if row is None:return
+            if not messagebox.askyesno('Delete Advance',f"Delete {row['empid']} — ৳{float(row['amount']):,.2f} dated {self.display_advance_date(row['advance_date'])}?",parent=self):return
+            try:
+                self.db.execute('DELETE FROM advances WHERE id=?',(rid,))
+                self.audit('DELETE_ADVANCE','advance',rid,{'employee_id':row['employee_id'],'date':row['advance_date'],'amount':float(row['amount']),'reason':row['reason']})
+                self.db.commit();refresh();clear_form()
+            except Exception as ex:
+                self.db.rollback();messagebox.showerror('Advance Money',str(ex),parent=self)
+
+        for label,cmd,style in [('ADD ADVANCE',add_advance,'Accent.TButton'),('EDIT SELECTED',edit_selected,None),('DELETE SELECTED',delete_selected,None),('CANCEL',clear_form,None),('SAVE CHANGES',edit_selected,'Accent.TButton')]:
+            ttk.Button(actions,text=label,command=cmd,style=style or 'TButton').pack(side='left',padx=3)
+
+        emp_entry.bind('<FocusOut>',lambda _e:employee_from_id())
+        emp_entry.bind('<Return>',lambda _e:(employee_from_id(), 'break')[1])
+        tree.bind('<<TreeviewSelect>>',load_selected)
+        tree.bind('<Double-1>',load_selected)
+        for v in vars.values():
+            v.trace_add('write',lambda *_: self.after(140,refresh))
+        refresh()
+        clear_form()
 
     def normalize_code(self, raw):
         s = str(raw).strip().upper().replace(' ', '')
@@ -2691,6 +2988,9 @@ def run_embedded_feature_regression_test():
         app.navigate(lambda: app.salary_payments('2026-10',0), duration=0);app.update_idletasks()
         if not any(isinstance(w,ttk.Treeview) for w in walk(app)): fail.append('Salary Payments page did not render')
         app.navigate(lambda: app.open_employee(eid,'2026-10'));app.update_idletasks()
+        deadline=time.time()+2.2
+        while time.time()<deadline and getattr(app,'_transition_busy',False):
+            app.update();time.sleep(0.01)
         # Find the Back button and invoke it directly.
         backs=[]
         for w in walk(app):
