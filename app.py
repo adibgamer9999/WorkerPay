@@ -170,6 +170,7 @@ class WorkerPay(tk.Tk):
         self._after_jobs = set()
         self.title(APP_NAME)
         self.configure(bg=BG)
+        self._apply_window_icon(self)
         self._page_key = None
         self._page_generation = 0
         self._loading_started = time.perf_counter()
@@ -302,23 +303,46 @@ class WorkerPay(tk.Tk):
         try:super().destroy()
         except tk.TclError:pass
 
+    def _resource_path(self, name):
+        """Resolve bundled resources for both source runs and PyInstaller one-file builds."""
+        base = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+        return os.path.join(base, name)
+
+    def _apply_window_icon(self, window):
+        if os.name != 'nt':
+            return
+        try:
+            window.iconbitmap(self._resource_path('workerpay.ico'))
+        except Exception:
+            pass
+
+    def _draw_workerpay_logo(self, canvas, size=96):
+        """Draw the same WorkerPay mark used by the Windows EXE icon."""
+        s=float(size); pad=max(2,s*0.07)
+        canvas.create_rectangle(pad,pad,s-pad,s-pad,fill='#172033',outline='#3b82f6',width=max(2,int(s*0.025)))
+        r=s*0.29; c=s/2
+        canvas.create_oval(c-r,c-r,c+r,c+r,fill='#3b82f6',outline='')
+        pts=[(s*.34,s*.36),(s*.43,s*.62),(s*.50,s*.45),(s*.57,s*.62),(s*.66,s*.36)]
+        canvas.create_line(*pts,fill='white',width=max(3,int(s*.10)),capstyle='round',joinstyle='curve')
+        canvas.create_line(s*.36,s*.76,s*.64,s*.76,fill='#a9c7ff',width=max(2,int(s*.04)),capstyle='round')
+
     def _make_splash(self):
         self.splash = tk.Toplevel(self)
         self.splash.overrideredirect(True)
         self.splash.configure(bg='#0d0f13')
+        self._apply_window_icon(self.splash)
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
-        w, h = 560, 330
+        w, h = 560, 350
         x, y = max(0,(sw-w)//2), max(0,(sh-h)//2)
         self.splash.geometry(f'{w}x{h}+{x}+{y}')
         self.splash.attributes('-topmost', True)
         wrap = tk.Frame(self.splash, bg='#0d0f13')
-        wrap.pack(fill='both', expand=True, padx=36, pady=32)
-        logo = tk.Canvas(wrap, width=86, height=86, bg='#0d0f13', highlightthickness=0)
-        logo.pack(pady=(10, 6))
-        logo.create_oval(8,8,78,78, fill='#172033', outline='#3b82f6', width=2)
-        logo.create_text(43,43,text='W',fill='white',font=('Segoe UI',34,'bold'))
+        wrap.pack(fill='both', expand=True, padx=36, pady=28)
+        logo = tk.Canvas(wrap, width=96, height=96, bg='#0d0f13', highlightthickness=0)
+        logo.pack(pady=(6, 4))
+        self._draw_workerpay_logo(logo, 96)
         tk.Label(wrap,text=APP_NAME,bg='#0d0f13',fg='white',font=('Segoe UI',27,'bold')).pack()
-        tk.Label(wrap,text='Worker and salary management',bg='#0d0f13',fg='#9ca3af',font=('Segoe UI',10)).pack(pady=(4,20))
+        tk.Label(wrap,text='Worker and salary management',bg='#0d0f13',fg='#9ca3af',font=('Segoe UI',10)).pack(pady=(4,18))
         self._splash_status = tk.Label(wrap,text='Preparing your workspace…',bg='#0d0f13',fg='#8ab4ff',font=('Segoe UI',10,'bold'))
         self._splash_status.pack()
         bar_bg=tk.Frame(wrap,bg='#1b2029',height=6)
@@ -846,7 +870,7 @@ class WorkerPay(tk.Tk):
             try: self.destroy()
             except tk.TclError: pass
 
-    def navigate(self,target,duration=1650,key=None):
+    def navigate(self,target,duration=1250,key=None):
         """Build the destination first, then slide it in once from the right.
 
         The old page remains underneath until the eased transition reaches 100%.
@@ -2061,62 +2085,45 @@ class WorkerPay(tk.Tk):
         refresh()
 
     def advance_money(self):
-        """Dedicated employee-wide advance ledger with fast filtering and full CRUD."""
+        """Dedicated employee-wide advance ledger with a clear edit-first layout."""
         self.clear()
-        self.header('Advance Money','Employee-wide advance records. Filter, review, add, edit, or delete advance payments without affecting plot attendance history.')
+        self.header('Advance Money','Employee-wide advance records. Add or edit an advance at the top, filter below it, and review matching records in the large center table.')
 
-        filters=tk.Frame(self.main,bg=PANEL,highlightbackground=BORDER,highlightthickness=1)
-        filters.pack(fill='x',padx=26,pady=(6,8))
-        vars={k:tk.StringVar() for k in ('date_from','date_to','name','empid','reason','min','max')}
+        # ---------- add / edit ----------
+        form=tk.Frame(self.main,bg=PANEL,highlightbackground=BORDER,highlightthickness=1)
+        form.pack(fill='x',padx=26,pady=(6,8))
+        tk.Label(form,text='ADD / EDIT ADVANCE',bg=PANEL,fg=TEXT,font=('Segoe UI',12,'bold')).grid(row=0,column=0,columnspan=5,sticky='w',padx=14,pady=(12,3))
+        tk.Label(form,text='Select a record to edit. Employee Name is filled automatically from Employee ID.',bg=PANEL,fg=MUTED,font=('Segoe UI',9)).grid(row=0,column=5,columnspan=2,sticky='e',padx=14,pady=(12,3))
 
-        labels=[('date_from','Date From'),('date_to','Date To'),('name','Name'),('empid','Employee ID'),('reason','Reason'),('min','Minimum Amount'),('max','Maximum Amount')]
-        for i,(key,label) in enumerate(labels):
-            tk.Label(filters,text=label,bg=PANEL,fg=MUTED,font=('Segoe UI',9,'bold')).grid(row=0,column=i,padx=5,pady=(10,3),sticky='w')
-            width=12 if key in ('date_from','date_to') else 15
-            ttk.Entry(filters,textvariable=vars[key],width=width).grid(row=1,column=i,padx=5,pady=(0,10),sticky='ew')
-            filters.grid_columnconfigure(i,weight=1)
-
-        body=tk.Frame(self.main,bg=BG);body.pack(fill='both',expand=True,padx=(26,0),pady=4)
-        table_frame=tk.Frame(body,bg=PANEL);table_frame.pack(fill='both',expand=True)
-        cols=('date','empid','name','amount','reason','id')
-        tree=ttk.Treeview(table_frame,columns=cols,show='headings',displaycolumns=('date','empid','name','amount','reason'))
-        for c,h,w,a in [
-            ('date','Date',105,'center'),('empid','Employee ID',115,'center'),('name','Employee Name',210,'w'),
-            ('amount','Advance Amount',145,'e'),('reason','Reason',430,'w'),('id','',1,'center')
-        ]:
-            tree.heading(c,text=h);tree.column(c,width=w,anchor=a,stretch=c=='reason')
-        sb=ModernScrollbar(table_frame,command=tree.yview,orient='vertical',thickness=15)
-        tree.configure(yscrollcommand=sb.set);tree.pack(side='left',fill='both',expand=True);sb.pack(side='right',fill='y',padx=(4,6),pady=4)
-        self.register_scroll_area(table_frame,tree,'y')
-
-        footer=tk.Frame(self.main,bg=BG);footer.pack(fill='x',padx=26,pady=(4,8))
-        result_lbl=tk.Label(footer,text='',bg=BG,fg='#8ab4ff',font=('Segoe UI',10,'bold'));result_lbl.pack(side='left')
-
-        form=tk.Frame(self.main,bg=PANEL,highlightbackground=BORDER,highlightthickness=1);form.pack(fill='x',padx=26,pady=(0,18))
         form_vars={k:tk.StringVar() for k in ('empid','name','date','amount','reason')}
-        tk.Label(form,text='Employee ID',bg=PANEL,fg=MUTED,font=('Segoe UI',9,'bold')).grid(row=0,column=0,padx=(12,5),pady=(10,3),sticky='w')
-        emp_entry=ttk.Entry(form,textvariable=form_vars['empid'],width=15);emp_entry.grid(row=1,column=0,padx=(12,5),pady=(0,12))
-        tk.Label(form,text='Employee Name',bg=PANEL,fg=MUTED,font=('Segoe UI',9,'bold')).grid(row=0,column=1,padx=5,pady=(10,3),sticky='w')
-        ttk.Entry(form,textvariable=form_vars['name'],width=24,state='readonly').grid(row=1,column=1,padx=5,pady=(0,12))
-        tk.Label(form,text='Date (DD.MM.YY)',bg=PANEL,fg=MUTED,font=('Segoe UI',9,'bold')).grid(row=0,column=2,padx=5,pady=(10,3),sticky='w')
-        ttk.Entry(form,textvariable=form_vars['date'],width=14).grid(row=1,column=2,padx=5,pady=(0,12))
-        tk.Label(form,text='Advance Amount',bg=PANEL,fg=MUTED,font=('Segoe UI',9,'bold')).grid(row=0,column=3,padx=5,pady=(10,3),sticky='w')
-        ttk.Entry(form,textvariable=form_vars['amount'],width=15).grid(row=1,column=3,padx=5,pady=(0,12))
-        tk.Label(form,text='Reason',bg=PANEL,fg=MUTED,font=('Segoe UI',9,'bold')).grid(row=0,column=4,padx=5,pady=(10,3),sticky='w')
-        ttk.Entry(form,textvariable=form_vars['reason'],width=28).grid(row=1,column=4,padx=5,pady=(0,12))
-        actions=tk.Frame(form,bg=PANEL);actions.grid(row=1,column=5,padx=(5,12),pady=(0,12),sticky='e')
+        fields=[('Employee ID','empid',15),('Employee Name','name',24),('Date (DD.MM.YY)','date',14),('Advance Amount','amount',15),('Reason','reason',30)]
+        entries={}
+        for i,(label,key,width) in enumerate(fields):
+            tk.Label(form,text=label,bg=PANEL,fg=MUTED,font=('Segoe UI',9,'bold')).grid(row=1,column=i,padx=6,pady=(8,3),sticky='w')
+            state='readonly' if key=='name' else 'normal'
+            ent=ttk.Entry(form,textvariable=form_vars[key],width=width,state=state)
+            ent.grid(row=2,column=i,padx=6,pady=(0,10),sticky='ew')
+            entries[key]=ent
+            form.grid_columnconfigure(i,weight=1,minsize=120)
+
+        actions=tk.Frame(form,bg='#0d0f13')
+        actions.grid(row=3,column=0,columnspan=5,sticky='w',padx=8,pady=(2,12))
         form_state={'selected_id':None}
 
         def clear_form():
             form_state['selected_id']=None
-            form_vars['empid'].set('');form_vars['name'].set('')
-            form_vars['date'].set(datetime.now().strftime('%d.%m.%y'));form_vars['amount'].set('');form_vars['reason'].set('')
+            form_vars['empid'].set('')
+            form_vars['name'].set('')
+            form_vars['date'].set(datetime.now().strftime('%d.%m.%y'))
+            form_vars['amount'].set('')
+            form_vars['reason'].set('')
             tree.selection_remove(tree.selection())
 
         def employee_from_id():
             raw=form_vars['empid'].get().strip()
             if not raw:
-                form_vars['name'].set('');return None
+                form_vars['name'].set('')
+                return None
             empid=self.normalize_employee_id(raw)
             row=self.db.execute('SELECT * FROM employees WHERE empid=? OR CAST(emp_number AS TEXT)=? LIMIT 1',(empid,raw)).fetchone()
             form_vars['name'].set(row['name'] if row else '')
@@ -2124,66 +2131,64 @@ class WorkerPay(tk.Tk):
 
         def validate_form():
             row=employee_from_id()
-            if row is None:raise ValueError('Enter a valid Employee ID.')
+            if row is None: raise ValueError('Enter a valid Employee ID.')
             dt=datetime.strptime(form_vars['date'].get().strip(),'%d.%m.%y').date()
             amount=safe_float(form_vars['amount'].get(),'Advance amount')
-            if amount<=0:raise ValueError('Advance amount must be greater than 0.')
+            if amount<=0: raise ValueError('Advance amount must be greater than 0.')
             reason=form_vars['reason'].get().strip()
-            if not reason:raise ValueError('Reason is required for an advance.')
+            if not reason: raise ValueError('Reason is required for an advance.')
             return row,dt,amount,reason
 
         def refresh():
-            for iid in tree.get_children():tree.delete(iid)
+            for iid in tree.get_children(): tree.delete(iid)
             clauses=[];params=[]
             def date_value(key):
-                raw=vars[key].get().strip()
+                raw=filter_vars[key].get().strip()
                 if not raw:return None
                 return datetime.strptime(raw,'%d.%m.%y').date().isoformat()
             try:
                 df=date_value('date_from');dt=date_value('date_to')
                 if df:clauses.append('a.advance_date>=?');params.append(df)
                 if dt:clauses.append('a.advance_date<=?');params.append(dt)
-                name=vars['name'].get().strip()
+                name=filter_vars['name'].get().strip()
                 if name:clauses.append('e.name LIKE ? COLLATE NOCASE');params.append('%'+name+'%')
-                empraw=vars['empid'].get().strip()
+                empraw=filter_vars['empid'].get().strip()
                 if empraw:
-                    empnorm=self.normalize_employee_id(empraw)
-                    clauses.append('(e.empid=? OR CAST(e.emp_number AS TEXT)=?)');params.extend([empnorm,empraw])
-                reason=vars['reason'].get().strip()
+                    empnorm=self.normalize_employee_filter(empraw)
+                    clauses.append('(e.empid LIKE ? COLLATE NOCASE OR CAST(e.emp_number AS TEXT)=?)')
+                    params.extend([f'%{empnorm}%',empraw])
+                reason=filter_vars['reason'].get().strip()
                 if reason:clauses.append('a.reason LIKE ? COLLATE NOCASE');params.append('%'+reason+'%')
-                if vars['min'].get().strip():
-                    clauses.append('a.amount>=?');params.append(safe_float(vars['min'].get(),'Minimum amount'))
-                if vars['max'].get().strip():
-                    clauses.append('a.amount<=?');params.append(safe_float(vars['max'].get(),'Maximum amount'))
+                if filter_vars['min'].get().strip():clauses.append('a.amount>=?');params.append(safe_float(filter_vars['min'].get(),'Minimum amount'))
+                if filter_vars['max'].get().strip():clauses.append('a.amount<=?');params.append(safe_float(filter_vars['max'].get(),'Maximum amount'))
                 sql='SELECT a.id,a.advance_date,a.amount,a.reason,e.empid,e.name FROM advances a JOIN employees e ON e.id=a.employee_id'
                 if clauses:sql+=' WHERE '+' AND '.join(clauses)
                 sql+=' ORDER BY a.advance_date DESC,e.emp_number,e.id,a.id DESC'
                 rows=self.db.execute(sql,params).fetchall()
-                total=0.0
+                total=sum(float(r['amount']) for r in rows)
                 for r in rows:
-                    amount=float(r['amount']);total+=amount
-                    tree.insert('', 'end', iid=str(r['id']), values=(self.display_advance_date(r['advance_date']),r['empid'],r['name'],f'৳{amount:,.2f}',r['reason'],str(r['id'])))
-                result_lbl.config(text=f'{len(rows):,} record(s) • Filtered total: ৳{total:,.2f}')
+                    tree.insert('', 'end', iid=str(r['id']), values=(self.display_advance_date(r['advance_date']),r['empid'],r['name'],f'৳{float(r["amount"]):,.2f}',r['reason']))
+                result_lbl.config(text=f'{len(rows):,} record(s) • Filtered total: ৳{total:,.2f}',fg='#8ab4ff')
             except Exception as ex:
                 result_lbl.config(text=f'Filter error: {ex}',fg=RED)
-                return
-            result_lbl.config(fg='#8ab4ff')
 
         def load_selected(_event=None):
             sel=tree.selection()
             if not sel:return
-            rid=int(sel[0]);row=self.db.execute('SELECT a.*,e.empid,e.name FROM advances a JOIN employees e ON e.id=a.employee_id WHERE a.id=?',(rid,)).fetchone()
+            rid=int(sel[0])
+            row=self.db.execute('SELECT a.*,e.empid,e.name FROM advances a JOIN employees e ON e.id=a.employee_id WHERE a.id=?',(rid,)).fetchone()
             if not row:return
             form_state['selected_id']=rid
-            form_vars['empid'].set(row['empid']);form_vars['name'].set(row['name'])
+            form_vars['empid'].set(row['empid'])
+            form_vars['name'].set(row['name'])
             form_vars['date'].set(self.display_advance_date(row['advance_date']))
-            form_vars['amount'].set(f"{float(row['amount']):g}");form_vars['reason'].set(row['reason'] or '')
+            form_vars['amount'].set(f'{float(row["amount"]):g}')
+            form_vars['reason'].set(row['reason'] or '')
 
         def add_advance():
             try:
                 row,dt,amount,reason=validate_form()
-                self.db.execute('INSERT INTO advances(employee_id,advance_date,amount,reason,created_at) VALUES(?,?,?,?,?)',
-                                (row['id'],dt.isoformat(),amount,reason,datetime.now().isoformat(timespec='seconds')))
+                self.db.execute('INSERT INTO advances(employee_id,advance_date,amount,reason,created_at) VALUES(?,?,?,?,?)',(row['id'],dt.isoformat(),amount,reason,datetime.now().isoformat(timespec='seconds')))
                 self.audit('ADD_ADVANCE','advance',row['id'],{'date':dt.isoformat(),'amount':amount,'reason':reason})
                 self.db.commit();refresh();clear_form()
             except Exception as ex:
@@ -2200,8 +2205,7 @@ class WorkerPay(tk.Tk):
                 row,dt,amount,reason=validate_form()
                 old=self.db.execute('SELECT * FROM advances WHERE id=?',(rid,)).fetchone()
                 if old is None:raise ValueError('The selected advance no longer exists.')
-                self.db.execute('UPDATE advances SET employee_id=?,advance_date=?,amount=?,reason=? WHERE id=?',
-                                (row['id'],dt.isoformat(),amount,reason,rid))
+                self.db.execute('UPDATE advances SET employee_id=?,advance_date=?,amount=?,reason=? WHERE id=?',(row['id'],dt.isoformat(),amount,reason,rid))
                 self.audit('EDIT_ADVANCE','advance',rid,{'before':{'employee_id':old['employee_id'],'date':old['advance_date'],'amount':float(old['amount']),'reason':old['reason']},'after':{'employee_id':row['id'],'date':dt.isoformat(),'amount':amount,'reason':reason}})
                 self.db.commit();refresh()
             except Exception as ex:
@@ -2215,7 +2219,7 @@ class WorkerPay(tk.Tk):
             if rid is None:return
             row=self.db.execute('SELECT a.*,e.empid,e.name FROM advances a JOIN employees e ON e.id=a.employee_id WHERE a.id=?',(rid,)).fetchone()
             if row is None:return
-            if not messagebox.askyesno('Delete Advance',f"Delete {row['empid']} — ৳{float(row['amount']):,.2f} dated {self.display_advance_date(row['advance_date'])}?",parent=self):return
+            if not messagebox.askyesno('Delete Advance',f'Delete {row["empid"]} — ৳{float(row["amount"]):,.2f} dated {self.display_advance_date(row["advance_date"])}?',parent=self):return
             try:
                 self.db.execute('DELETE FROM advances WHERE id=?',(rid,))
                 self.audit('DELETE_ADVANCE','advance',rid,{'employee_id':row['employee_id'],'date':row['advance_date'],'amount':float(row['amount']),'reason':row['reason']})
@@ -2226,12 +2230,40 @@ class WorkerPay(tk.Tk):
         for label,cmd,style in [('ADD ADVANCE',add_advance,'Accent.TButton'),('EDIT SELECTED',edit_selected,None),('DELETE SELECTED',delete_selected,None),('CANCEL',clear_form,None),('SAVE CHANGES',edit_selected,'Accent.TButton')]:
             ttk.Button(actions,text=label,command=cmd,style=style or 'TButton').pack(side='left',padx=3)
 
-        emp_entry.bind('<FocusOut>',lambda _e:employee_from_id())
-        emp_entry.bind('<Return>',lambda _e:(employee_from_id(), 'break')[1])
+        # ---------- filters ----------
+        filter_card=tk.Frame(self.main,bg=PANEL,highlightbackground=BORDER,highlightthickness=1)
+        filter_card.pack(fill='x',padx=26,pady=(0,8))
+        tk.Label(filter_card,text='FILTERS',bg=PANEL,fg=TEXT,font=('Segoe UI',12,'bold')).grid(row=0,column=0,columnspan=7,sticky='w',padx=14,pady=(10,3))
+        filter_vars={k:tk.StringVar() for k in ('date_from','date_to','name','empid','reason','min','max')}
+        filter_labels=[('date_from','Date From',12),('date_to','Date To',12),('name','Name',15),('empid','Employee ID',15),('reason','Reason',18),('min','Minimum Amount',15),('max','Maximum Amount',15)]
+        for i,(key,label,width) in enumerate(filter_labels):
+            tk.Label(filter_card,text=label,bg=PANEL,fg=MUTED,font=('Segoe UI',9,'bold')).grid(row=1,column=i,padx=5,pady=(5,3),sticky='w')
+            ttk.Entry(filter_card,textvariable=filter_vars[key],width=width).grid(row=2,column=i,padx=5,pady=(0,10),sticky='ew')
+            filter_card.grid_columnconfigure(i,weight=1,minsize=110)
+
+        # ---------- records ----------
+        body=tk.Frame(self.main,bg=BG)
+        body.pack(fill='both',expand=True,padx=(26,0),pady=(0,4))
+        table_frame=tk.Frame(body,bg=PANEL,highlightbackground=BORDER,highlightthickness=1)
+        table_frame.pack(fill='both',expand=True)
+        cols=('date','empid','name','amount','reason')
+        tree=ttk.Treeview(table_frame,columns=cols,show='headings')
+        for c,h,w,a in [('date','Date',105,'center'),('empid','Employee ID',115,'center'),('name','Employee Name',210,'w'),('amount','Advance Amount',145,'e'),('reason','Reason',430,'w')]:
+            tree.heading(c,text=h);tree.column(c,width=w,anchor=a,stretch=c=='reason')
+        sb=ModernScrollbar(table_frame,command=tree.yview,orient='vertical',thickness=15)
+        tree.configure(yscrollcommand=sb.set)
+        tree.pack(side='left',fill='both',expand=True)
+        sb.pack(side='right',fill='y',padx=(4,6),pady=4)
+        self.register_scroll_area(table_frame,tree,'y',default=True)
+
+        footer=tk.Frame(self.main,bg=BG)
+        footer.pack(fill='x',padx=26,pady=(4,10))
+        result_lbl=tk.Label(footer,text='',bg=BG,fg='#8ab4ff',font=('Segoe UI',10,'bold'))
+        result_lbl.pack(side='left')
+        for v in filter_vars.values():
+            v.trace_add('write',lambda *_: self.after(140,refresh))
         tree.bind('<<TreeviewSelect>>',load_selected)
         tree.bind('<Double-1>',load_selected)
-        for v in vars.values():
-            v.trace_add('write',lambda *_: self.after(140,refresh))
         refresh()
         clear_form()
 
