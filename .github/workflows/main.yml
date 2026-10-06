@@ -1,4 +1,5 @@
 name: WorkerPay Windows Release
+# Windows release includes the branded WorkerPay ICO.
 
 on:
   workflow_dispatch:
