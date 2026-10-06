@@ -170,7 +170,6 @@ class WorkerPay(tk.Tk):
         self._after_jobs = set()
         self.title(APP_NAME)
         self.configure(bg=BG)
-        self._apply_window_icon(self)
         self._page_key = None
         self._page_generation = 0
         self._loading_started = time.perf_counter()
@@ -330,7 +329,6 @@ class WorkerPay(tk.Tk):
         self.splash = tk.Toplevel(self)
         self.splash.overrideredirect(True)
         self.splash.configure(bg='#0d0f13')
-        self._apply_window_icon(self.splash)
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
         w, h = 560, 350
         x, y = max(0,(sw-w)//2), max(0,(sh-h)//2)
