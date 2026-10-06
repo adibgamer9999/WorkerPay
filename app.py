@@ -322,7 +322,7 @@ class WorkerPay(tk.Tk):
         r=s*0.29; c=s/2
         canvas.create_oval(c-r,c-r,c+r,c+r,fill='#3b82f6',outline='')
         pts=[(s*.34,s*.36),(s*.43,s*.62),(s*.50,s*.45),(s*.57,s*.62),(s*.66,s*.36)]
-        canvas.create_line(*pts,fill='white',width=max(3,int(s*.10)),capstyle='round',joinstyle='curve')
+        canvas.create_line(*(coord for point in pts for coord in point),fill='white',width=max(3,int(s*.10)),capstyle='round',joinstyle='curve')
         canvas.create_line(s*.36,s*.76,s*.64,s*.76,fill='#a9c7ff',width=max(2,int(s*.04)),capstyle='round')
 
     def _make_splash(self):
