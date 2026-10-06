@@ -42,7 +42,7 @@ jobs:
       - name: Build WorkerPay EXE
         shell: pwsh
         run: |
-          python -m PyInstaller --noconfirm --clean --onefile --windowed --name WorkerPay app.py
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name WorkerPay --icon workerpay.ico --add-data "workerpay.ico;." app.py
 
           if (-not (Test-Path "dist\WorkerPay.exe")) {
             throw "WorkerPay.exe was not created."
