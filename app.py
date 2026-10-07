@@ -2143,187 +2143,296 @@ class WorkerPay(tk.Tk):
         refresh()
 
     def advance_money(self):
-        """Dedicated employee-wide advance ledger with a clear edit-first layout."""
+        """Employee advance editor and ledger."""
         self.clear()
-        self.header('Advance Money','Employee-wide advance records. Add or edit an advance at the top, filter below it, and review matching records in the large center table.')
+        self.header('Advance Money',
+                    'Add or edit an advance using the worker’s exact registered name. Employee ID is shown automatically for confirmation.')
 
-        # ---------- add / edit ----------
-        form=tk.Frame(self.main,bg=PANEL,highlightbackground=BORDER,highlightthickness=1)
-        form.pack(fill='x',padx=26,pady=(6,8))
-        tk.Label(form,text='ADD / EDIT ADVANCE',bg=PANEL,fg=TEXT,font=('Segoe UI',12,'bold')).grid(row=0,column=0,columnspan=5,sticky='w',padx=14,pady=(12,3))
-        tk.Label(form,text='Select a record to edit. Employee Name is filled automatically from Employee ID.',bg=PANEL,fg=MUTED,font=('Segoe UI',9)).grid(row=0,column=5,columnspan=2,sticky='e',padx=14,pady=(12,3))
+        root=tk.Frame(self.main,bg=BG)
+        root.pack(fill='both',expand=True,padx=22,pady=(4,12))
+        root.grid_columnconfigure(0,weight=1,uniform='advance_editor')
+        root.grid_columnconfigure(1,weight=1,uniform='advance_editor')
+        root.grid_rowconfigure(0,weight=0)
+        root.grid_rowconfigure(1,weight=1)
 
-        form_vars={k:tk.StringVar() for k in ('empid','name','date','amount','reason')}
-        fields=[('Employee ID','empid',15),('Employee Name','name',24),('Date (DD.MM.YY)','date',14),('Advance Amount','amount',15),('Reason','reason',30)]
-        entries={}
-        for i,(label,key,width) in enumerate(fields):
-            tk.Label(form,text=label,bg=PANEL,fg=MUTED,font=('Segoe UI',9,'bold')).grid(row=1,column=i,padx=6,pady=(8,3),sticky='w')
-            state='readonly' if key=='name' else 'normal'
-            ent=ttk.Entry(form,textvariable=form_vars[key],width=width,state=state)
-            ent.grid(row=2,column=i,padx=6,pady=(0,10),sticky='ew')
-            entries[key]=ent
-            form.grid_columnconfigure(i,weight=1,minsize=120)
+        # ---------- employee-wide add/edit form ----------
+        form=tk.Frame(root,bg=PANEL,highlightbackground=BORDER,highlightthickness=1)
+        form.grid(row=0,column=0,columnspan=2,sticky='ew',pady=(0,10))
+        form.grid_columnconfigure(0,weight=1)
+        form.grid_columnconfigure(1,weight=1)
 
-        actions=tk.Frame(form,bg='#0d0f13')
-        actions.grid(row=3,column=0,columnspan=5,sticky='w',padx=8,pady=(2,12))
-        form_state={'selected_id':None}
+        tk.Label(form,text='ADD / EDIT ADVANCE',bg=PANEL,fg=TEXT,font=('Segoe UI',13,'bold')).grid(
+            row=0,column=0,columnspan=2,sticky='w',padx=20,pady=(15,3))
+        tk.Label(form,text='Choose the exact employee name. The Employee ID is only a confirmation and is filled automatically.',
+                 bg=PANEL,fg=MUTED,font=('Segoe UI',9),justify='left').grid(
+            row=1,column=0,columnspan=2,sticky='w',padx=20,pady=(0,10))
 
-        def clear_form():
-            form_state['selected_id']=None
-            form_vars['empid'].set('')
-            form_vars['name'].set('')
-            form_vars['date'].set(datetime.now().strftime('%d.%m.%y'))
-            form_vars['amount'].set('')
-            form_vars['reason'].set('')
-            tree.selection_remove(tree.selection())
+        state={'selected_id':None,'employee_id':None}
+        vars_={k:tk.StringVar() for k in ('name','empid','date','amount','reason')}
 
-        def employee_from_id():
-            raw=form_vars['empid'].get().strip()
+        def make_field(row,col,label,key,readonly=False):
+            tk.Label(form,text=label,bg=PANEL,fg=TEXT,font=('Segoe UI',10,'bold')).grid(
+                row=row,column=col,sticky='w',padx=18,pady=(6,4))
+            ent=ttk.Entry(form,textvariable=vars_[key],font=('Segoe UI',10),state='readonly' if readonly else 'normal')
+            ent.grid(row=row+1,column=col,sticky='ew',padx=18,pady=(0,10),ipady=4)
+            return ent
+
+        # Exact-name selection is the primary employee field.
+        employee_rows=self.db.execute('SELECT id,empid,name FROM employees ORDER BY active DESC,emp_number,id').fetchall()
+        employee_lookup={}
+        name_values=[]
+        for er in employee_rows:
+            display=f'{er["name"]}  —  {er["empid"]}'
+            employee_lookup[display]=er
+            name_values.append(display)
+
+        tk.Label(form,text='Employee Name',bg=PANEL,fg=TEXT,font=('Segoe UI',10,'bold')).grid(
+            row=2,column=0,sticky='w',padx=18,pady=(4,4))
+        name_combo=ttk.Combobox(form,textvariable=vars_['name'],values=name_values,state='normal')
+        name_combo.grid(row=3,column=0,sticky='ew',padx=18,pady=(0,10),ipady=4)
+
+        make_field(2,1,'Employee ID','empid',True)
+        make_field(4,0,'Date (DD.MM.YY)','date')
+        make_field(4,1,'Advance Amount','amount')
+
+        tk.Label(form,text='Reason',bg=PANEL,fg=TEXT,font=('Segoe UI',10,'bold')).grid(
+            row=6,column=0,columnspan=2,sticky='w',padx=18,pady=(4,4))
+        reason_ent=ttk.Entry(form,textvariable=vars_['reason'],font=('Segoe UI',10))
+        reason_ent.grid(row=7,column=0,columnspan=2,sticky='ew',padx=18,pady=(0,12),ipady=5)
+
+        note=tk.Label(form,text='Reason: enter anything you want (for example: food, family emergency, transport, personal expense, etc.).',
+                      bg=PANEL,fg=MUTED,font=('Segoe UI',9),anchor='w')
+        note.grid(row=8,column=0,columnspan=2,sticky='ew',padx=18,pady=(0,10))
+
+        actions=tk.Frame(form,bg=PANEL)
+        actions.grid(row=9,column=0,columnspan=2,sticky='w',padx=14,pady=(0,15))
+
+        def find_employee():
+            raw=vars_['name'].get().strip()
             if not raw:
-                form_vars['name'].set('')
+                vars_['empid'].set('')
+                state['employee_id']=None
                 return None
-            empid=self.normalize_employee_id(raw)
-            row=self.db.execute('SELECT * FROM employees WHERE empid=? OR CAST(emp_number AS TEXT)=? LIMIT 1',(empid,raw)).fetchone()
-            form_vars['name'].set(row['name'] if row else '')
-            return row
+            row=employee_lookup.get(raw)
+            if row is not None:
+                vars_['empid'].set(row['empid'])
+                state['employee_id']=int(row['id'])
+                return row
+            # Also accept an exact registered name typed manually when it is unique.
+            matches=self.db.execute('SELECT id,empid,name FROM employees WHERE name=? COLLATE NOCASE ORDER BY active DESC,emp_number,id',(raw,)).fetchall()
+            if len(matches)==1:
+                row=matches[0]
+                vars_['name'].set(row['name'])
+                vars_['empid'].set(row['empid'])
+                state['employee_id']=int(row['id'])
+                return row
+            vars_['empid'].set('')
+            state['employee_id']=None
+            return None
 
         def validate_form():
-            row=employee_from_id()
-            if row is None: raise ValueError('Enter a valid Employee ID.')
-            dt=datetime.strptime(form_vars['date'].get().strip(),'%d.%m.%y').date()
-            amount=safe_float(form_vars['amount'].get(),'Advance amount')
+            row=find_employee()
+            if row is None:
+                raise ValueError('Select or enter the exact registered Employee Name.')
+            dt=datetime.strptime(vars_['date'].get().strip(),'%d.%m.%y').date()
+            amount=safe_float(vars_['amount'].get(),'Advance amount')
             if amount<=0: raise ValueError('Advance amount must be greater than 0.')
-            reason=form_vars['reason'].get().strip()
-            if not reason: raise ValueError('Reason is required for an advance.')
+            reason=vars_['reason'].get().strip()
+            if not reason:
+                raise ValueError('Enter a reason for this advance.')
             return row,dt,amount,reason
 
+        def clear_form():
+            state['selected_id']=None
+            state['employee_id']=None
+            vars_['name'].set('')
+            vars_['empid'].set('')
+            vars_['date'].set(datetime.now().strftime('%d.%m.%y'))
+            vars_['amount'].set('')
+            vars_['reason'].set('')
+            try: records.selection_remove(records.selection())
+            except Exception: pass
+            name_combo.focus_set()
+
+        def add_advance():
+            try:
+                row,dt,amount,reason=validate_form()
+                self.db.execute(
+                    'INSERT INTO advances(employee_id,advance_date,amount,reason,created_at) VALUES(?,?,?,?,?)',
+                    (int(row['id']),dt.isoformat(),amount,reason,datetime.now().isoformat(timespec='seconds')))
+                self.audit('ADD_ADVANCE','advance',int(row['id']),
+                           {'employee_id':int(row['id']),'employee_name':row['name'],'employee_id_text':row['empid'],
+                            'date':dt.isoformat(),'amount':amount,'reason':reason})
+                self.db.commit()
+                refresh()
+                clear_form()
+            except Exception as ex:
+                self.db.rollback()
+                messagebox.showerror('Advance Money',str(ex),parent=self)
+
+        def edit_selected():
+            rid=state['selected_id']
+            if rid is None:
+                sel=records.selection()
+                if sel: rid=int(sel[0])
+            if rid is None:
+                messagebox.showwarning('Advance Money','Select an advance record first.',parent=self); return
+            try:
+                row,dt,amount,reason=validate_form()
+                old=self.db.execute('SELECT * FROM advances WHERE id=?',(rid,)).fetchone()
+                if old is None: raise ValueError('The selected advance no longer exists.')
+                self.db.execute(
+                    'UPDATE advances SET employee_id=?,advance_date=?,amount=?,reason=? WHERE id=?',
+                    (int(row['id']),dt.isoformat(),amount,reason,rid))
+                self.audit('EDIT_ADVANCE','advance',rid,
+                           {'before':{'employee_id':old['employee_id'],'date':old['advance_date'],
+                                      'amount':float(old['amount']),'reason':old['reason']},
+                            'after':{'employee_id':int(row['id']),'employee_name':row['name'],
+                                     'employee_id_text':row['empid'],'date':dt.isoformat(),
+                                     'amount':amount,'reason':reason}})
+                self.db.commit()
+                refresh()
+            except Exception as ex:
+                self.db.rollback()
+                messagebox.showerror('Advance Money',str(ex),parent=self)
+
+        def delete_selected():
+            rid=state['selected_id']
+            if rid is None:
+                sel=records.selection()
+                if sel: rid=int(sel[0])
+            if rid is None: return
+            row=self.db.execute(
+                'SELECT a.*,e.empid,e.name FROM advances a JOIN employees e ON e.id=a.employee_id WHERE a.id=?',(rid,)).fetchone()
+            if row is None: return
+            if not messagebox.askyesno('Delete Advance',
+                f'Delete {row["name"]} — {row["empid"]} — ৳{float(row["amount"]):,.2f} dated {self.display_advance_date(row["advance_date"])}?',
+                parent=self): return
+            try:
+                self.db.execute('DELETE FROM advances WHERE id=?',(rid,))
+                self.audit('DELETE_ADVANCE','advance',rid,
+                           {'employee_id':row['employee_id'],'employee_name':row['name'],
+                            'employee_id_text':row['empid'],'date':row['advance_date'],
+                            'amount':float(row['amount']),'reason':row['reason']})
+                self.db.commit()
+                refresh()
+                clear_form()
+            except Exception as ex:
+                self.db.rollback()
+                messagebox.showerror('Advance Money',str(ex),parent=self)
+
+        for label,cmd,style in [
+            ('ADD ADVANCE',add_advance,'Accent.TButton'),
+            ('EDIT SELECTED',edit_selected,None),
+            ('DELETE SELECTED',delete_selected,None),
+            ('CANCEL',clear_form,None),
+            ('SAVE CHANGES',edit_selected,'Accent.TButton')]:
+            ttk.Button(actions,text=label,command=cmd,style=style or 'TButton').pack(side='left',padx=3)
+
+        def sync_name(_event=None):
+            raw=vars_['name'].get().strip()
+            row=employee_lookup.get(raw)
+            if row:
+                vars_['name'].set(row['name'])
+                vars_['empid'].set(row['empid'])
+                state['employee_id']=int(row['id'])
+            else:
+                state['employee_id']=None
+                vars_['empid'].set('')
+        name_combo.bind('<<ComboboxSelected>>',sync_name)
+
+        # ---------- filters ----------
+        filter_card=tk.Frame(root,bg=PANEL,highlightbackground=BORDER,highlightthickness=1)
+        filter_card.grid(row=1,column=0,sticky='nsew',padx=(0,5))
+        filter_card.grid_rowconfigure(3,weight=1)
+        for i in range(7): filter_card.grid_columnconfigure(i,weight=1,minsize=90)
+        tk.Label(filter_card,text='FILTERS',bg=PANEL,fg=TEXT,font=('Segoe UI',12,'bold')).grid(
+            row=0,column=0,columnspan=7,sticky='w',padx=14,pady=(10,3))
+        filter_vars={k:tk.StringVar() for k in ('date_from','date_to','name','empid','reason','min','max')}
+        filter_labels=[('date_from','Date From'),('date_to','Date To'),('name','Name'),('empid','Employee ID'),
+                       ('reason','Reason'),('min','Minimum Amount'),('max','Maximum Amount')]
+        for i,(key,label) in enumerate(filter_labels):
+            tk.Label(filter_card,text=label,bg=PANEL,fg=MUTED,font=('Segoe UI',9,'bold')).grid(row=1,column=i,padx=5,pady=(5,3),sticky='w')
+            ttk.Entry(filter_card,textvariable=filter_vars[key]).grid(row=2,column=i,padx=5,pady=(0,10),sticky='ew')
+
+        # ---------- records ----------
+        table_frame=tk.Frame(filter_card,bg=PANEL)
+        table_frame.grid(row=3,column=0,columnspan=7,sticky='nsew',padx=8,pady=(0,8))
+        table_frame.grid_rowconfigure(0,weight=1);table_frame.grid_columnconfigure(0,weight=1)
+        cols=('date','empid','name','amount','reason')
+        records=ttk.Treeview(table_frame,columns=cols,show='headings',selectmode='browse')
+        for col,heading,width,anchor in [
+            ('date','Date',105,'center'),('empid','Employee ID',115,'center'),
+            ('name','Employee Name',220,'w'),('amount','Advance Amount',145,'e'),
+            ('reason','Reason',430,'w')]:
+            records.heading(col,text=heading);records.column(col,width=width,anchor=anchor,stretch=col=='reason')
+        sb=ModernScrollbar(table_frame,command=records.yview,orient='vertical',thickness=15)
+        records.configure(yscrollcommand=sb.set)
+        records.grid(row=0,column=0,sticky='nsew');sb.grid(row=0,column=1,sticky='ns',padx=(4,6),pady=4)
+        self.register_scroll_area(table_frame,records,'y',default=True)
+
+        footer=tk.Frame(filter_card,bg=PANEL)
+        footer.grid(row=4,column=0,columnspan=7,sticky='ew',padx=12,pady=(0,10))
+        result_lbl=tk.Label(footer,text='',bg=PANEL,fg='#8ab4ff',font=('Segoe UI',10,'bold'))
+        result_lbl.pack(side='left')
+
         def refresh():
-            for iid in tree.get_children(): tree.delete(iid)
+            for iid in records.get_children(): records.delete(iid)
             clauses=[];params=[]
             def date_value(key):
                 raw=filter_vars[key].get().strip()
                 if not raw:return None
                 return datetime.strptime(raw,'%d.%m.%y').date().isoformat()
             try:
-                df=date_value('date_from');dt=date_value('date_to')
-                if df:clauses.append('a.advance_date>=?');params.append(df)
-                if dt:clauses.append('a.advance_date<=?');params.append(dt)
+                df=date_value('date_from'); dt=date_value('date_to')
+                if df: clauses.append('a.advance_date>=?');params.append(df)
+                if dt: clauses.append('a.advance_date<=?');params.append(dt)
                 name=filter_vars['name'].get().strip()
-                if name:clauses.append('e.name LIKE ? COLLATE NOCASE');params.append('%'+name+'%')
+                if name: clauses.append('e.name LIKE ? COLLATE NOCASE');params.append('%'+name+'%')
                 empraw=filter_vars['empid'].get().strip()
                 if empraw:
                     empnorm=self.normalize_employee_filter(empraw)
                     clauses.append('(e.empid LIKE ? COLLATE NOCASE OR CAST(e.emp_number AS TEXT)=?)')
                     params.extend([f'%{empnorm}%',empraw])
                 reason=filter_vars['reason'].get().strip()
-                if reason:clauses.append('a.reason LIKE ? COLLATE NOCASE');params.append('%'+reason+'%')
-                if filter_vars['min'].get().strip():clauses.append('a.amount>=?');params.append(safe_float(filter_vars['min'].get(),'Minimum amount'))
-                if filter_vars['max'].get().strip():clauses.append('a.amount<=?');params.append(safe_float(filter_vars['max'].get(),'Maximum amount'))
+                if reason: clauses.append('a.reason LIKE ? COLLATE NOCASE');params.append('%'+reason+'%')
+                if filter_vars['min'].get().strip(): clauses.append('a.amount>=?');params.append(safe_float(filter_vars['min'].get(),'Minimum amount'))
+                if filter_vars['max'].get().strip(): clauses.append('a.amount<=?');params.append(safe_float(filter_vars['max'].get(),'Maximum amount'))
                 sql='SELECT a.id,a.advance_date,a.amount,a.reason,e.empid,e.name FROM advances a JOIN employees e ON e.id=a.employee_id'
-                if clauses:sql+=' WHERE '+' AND '.join(clauses)
+                if clauses: sql+=' WHERE '+' AND '.join(clauses)
                 sql+=' ORDER BY a.advance_date DESC,e.emp_number,e.id,a.id DESC'
                 rows=self.db.execute(sql,params).fetchall()
                 total=sum(float(r['amount']) for r in rows)
                 for r in rows:
-                    tree.insert('', 'end', iid=str(r['id']), values=(self.display_advance_date(r['advance_date']),r['empid'],r['name'],f'৳{float(r["amount"]):,.2f}',r['reason']))
+                    records.insert('', 'end',iid=str(r['id']),
+                                   values=(self.display_advance_date(r['advance_date']),r['empid'],r['name'],
+                                           f'৳{float(r["amount"]):,.2f}',r['reason']))
                 result_lbl.config(text=f'{len(rows):,} record(s) • Filtered total: ৳{total:,.2f}',fg='#8ab4ff')
             except Exception as ex:
                 result_lbl.config(text=f'Filter error: {ex}',fg=RED)
 
         def load_selected(_event=None):
-            sel=tree.selection()
+            sel=records.selection()
             if not sel:return
             rid=int(sel[0])
-            row=self.db.execute('SELECT a.*,e.empid,e.name FROM advances a JOIN employees e ON e.id=a.employee_id WHERE a.id=?',(rid,)).fetchone()
+            row=self.db.execute(
+                'SELECT a.*,e.empid,e.name FROM advances a JOIN employees e ON e.id=a.employee_id WHERE a.id=?',(rid,)).fetchone()
             if not row:return
-            form_state['selected_id']=rid
-            form_vars['empid'].set(row['empid'])
-            form_vars['name'].set(row['name'])
-            form_vars['date'].set(self.display_advance_date(row['advance_date']))
-            form_vars['amount'].set(f'{float(row["amount"]):g}')
-            form_vars['reason'].set(row['reason'] or '')
+            state['selected_id']=rid
+            display=f'{row["name"]}  —  {row["empid"]}'
+            vars_['name'].set(display)
+            vars_['empid'].set(row['empid'])
+            vars_['date'].set(self.display_advance_date(row['advance_date']))
+            vars_['amount'].set(f'{float(row["amount"]):g}')
+            vars_['reason'].set(row['reason'] or '')
 
-        def add_advance():
-            try:
-                row,dt,amount,reason=validate_form()
-                self.db.execute('INSERT INTO advances(employee_id,advance_date,amount,reason,created_at) VALUES(?,?,?,?,?)',(row['id'],dt.isoformat(),amount,reason,datetime.now().isoformat(timespec='seconds')))
-                self.audit('ADD_ADVANCE','advance',row['id'],{'date':dt.isoformat(),'amount':amount,'reason':reason})
-                self.db.commit();refresh();clear_form()
-            except Exception as ex:
-                self.db.rollback();messagebox.showerror('Advance Money',str(ex),parent=self)
-
-        def edit_selected():
-            rid=form_state['selected_id']
-            if rid is None:
-                sel=tree.selection()
-                if sel:rid=int(sel[0])
-            if rid is None:
-                messagebox.showwarning('Advance Money','Select an advance record first.',parent=self);return
-            try:
-                row,dt,amount,reason=validate_form()
-                old=self.db.execute('SELECT * FROM advances WHERE id=?',(rid,)).fetchone()
-                if old is None:raise ValueError('The selected advance no longer exists.')
-                self.db.execute('UPDATE advances SET employee_id=?,advance_date=?,amount=?,reason=? WHERE id=?',(row['id'],dt.isoformat(),amount,reason,rid))
-                self.audit('EDIT_ADVANCE','advance',rid,{'before':{'employee_id':old['employee_id'],'date':old['advance_date'],'amount':float(old['amount']),'reason':old['reason']},'after':{'employee_id':row['id'],'date':dt.isoformat(),'amount':amount,'reason':reason}})
-                self.db.commit();refresh()
-            except Exception as ex:
-                self.db.rollback();messagebox.showerror('Advance Money',str(ex),parent=self)
-
-        def delete_selected():
-            rid=form_state['selected_id']
-            if rid is None:
-                sel=tree.selection()
-                if sel:rid=int(sel[0])
-            if rid is None:return
-            row=self.db.execute('SELECT a.*,e.empid,e.name FROM advances a JOIN employees e ON e.id=a.employee_id WHERE a.id=?',(rid,)).fetchone()
-            if row is None:return
-            if not messagebox.askyesno('Delete Advance',f'Delete {row["empid"]} — ৳{float(row["amount"]):,.2f} dated {self.display_advance_date(row["advance_date"])}?',parent=self):return
-            try:
-                self.db.execute('DELETE FROM advances WHERE id=?',(rid,))
-                self.audit('DELETE_ADVANCE','advance',rid,{'employee_id':row['employee_id'],'date':row['advance_date'],'amount':float(row['amount']),'reason':row['reason']})
-                self.db.commit();refresh();clear_form()
-            except Exception as ex:
-                self.db.rollback();messagebox.showerror('Advance Money',str(ex),parent=self)
-
-        for label,cmd,style in [('ADD ADVANCE',add_advance,'Accent.TButton'),('EDIT SELECTED',edit_selected,None),('DELETE SELECTED',delete_selected,None),('CANCEL',clear_form,None),('SAVE CHANGES',edit_selected,'Accent.TButton')]:
-            ttk.Button(actions,text=label,command=cmd,style=style or 'TButton').pack(side='left',padx=3)
-
-        # ---------- filters ----------
-        filter_card=tk.Frame(self.main,bg=PANEL,highlightbackground=BORDER,highlightthickness=1)
-        filter_card.pack(fill='x',padx=26,pady=(0,8))
-        tk.Label(filter_card,text='FILTERS',bg=PANEL,fg=TEXT,font=('Segoe UI',12,'bold')).grid(row=0,column=0,columnspan=7,sticky='w',padx=14,pady=(10,3))
-        filter_vars={k:tk.StringVar() for k in ('date_from','date_to','name','empid','reason','min','max')}
-        filter_labels=[('date_from','Date From',12),('date_to','Date To',12),('name','Name',15),('empid','Employee ID',15),('reason','Reason',18),('min','Minimum Amount',15),('max','Maximum Amount',15)]
-        for i,(key,label,width) in enumerate(filter_labels):
-            tk.Label(filter_card,text=label,bg=PANEL,fg=MUTED,font=('Segoe UI',9,'bold')).grid(row=1,column=i,padx=5,pady=(5,3),sticky='w')
-            ttk.Entry(filter_card,textvariable=filter_vars[key],width=width).grid(row=2,column=i,padx=5,pady=(0,10),sticky='ew')
-            filter_card.grid_columnconfigure(i,weight=1,minsize=110)
-
-        # ---------- records ----------
-        body=tk.Frame(self.main,bg=BG)
-        body.pack(fill='both',expand=True,padx=(26,0),pady=(0,4))
-        table_frame=tk.Frame(body,bg=PANEL,highlightbackground=BORDER,highlightthickness=1)
-        table_frame.pack(fill='both',expand=True)
-        cols=('date','empid','name','amount','reason')
-        tree=ttk.Treeview(table_frame,columns=cols,show='headings')
-        for c,h,w,a in [('date','Date',105,'center'),('empid','Employee ID',115,'center'),('name','Employee Name',210,'w'),('amount','Advance Amount',145,'e'),('reason','Reason',430,'w')]:
-            tree.heading(c,text=h);tree.column(c,width=w,anchor=a,stretch=c=='reason')
-        sb=ModernScrollbar(table_frame,command=tree.yview,orient='vertical',thickness=15)
-        tree.configure(yscrollcommand=sb.set)
-        tree.pack(side='left',fill='both',expand=True)
-        sb.pack(side='right',fill='y',padx=(4,6),pady=4)
-        self.register_scroll_area(table_frame,tree,'y',default=True)
-
-        footer=tk.Frame(self.main,bg=BG)
-        footer.pack(fill='x',padx=26,pady=(4,10))
-        result_lbl=tk.Label(footer,text='',bg=BG,fg='#8ab4ff',font=('Segoe UI',10,'bold'))
-        result_lbl.pack(side='left')
+        records.bind('<<TreeviewSelect>>',load_selected)
+        records.bind('<Double-1>',load_selected)
         for v in filter_vars.values():
             v.trace_add('write',lambda *_: self.after(140,refresh))
-        tree.bind('<<TreeviewSelect>>',load_selected)
-        tree.bind('<Double-1>',load_selected)
         refresh()
         clear_form()
+
 
     @staticmethod
     def format_person_name(raw):
