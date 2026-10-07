@@ -16,7 +16,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 
 APP_NAME = 'WorkerPay'
-APP_VERSION = '4.5.0'
+APP_VERSION = '4.5.1'
 
 # Installed program files belong on the Windows system drive (normally C:\Program Files\WorkerPay).
 # User data stays in the user's C: drive AppData location so Program Files can remain read-only.
@@ -1273,10 +1273,15 @@ class WorkerPay(tk.Tk):
         start=max(1,int(start)); end=min(maxday,int(end if end is not None else maxday))
         if end < start:
             end=start
+        employee_row = self.db.execute('SELECT start FROM employees WHERE id=?', (eid,)).fetchone()
+        employee_start = str(employee_row['start'] or '').strip() if employee_row else ''
+        effective_lo = f'{month}-{start:02d}'
+        if employee_start:
+            effective_lo = max(effective_lo, employee_start)
         rows=self.db.execute(
             'SELECT id,day,code FROM attendance WHERE employee_id=? AND plot_id=? '
             'AND day>=? AND day<=? ORDER BY day,id',
-            (eid,pid,f'{month}-{start:02d}',f'{month}-{end:02d}')
+            (eid,pid,effective_lo,f'{month}-{end:02d}')
         ).fetchall()
         # One calendar date = one attendance value. This is intentionally keyed by
         # the date string, so even a legacy database containing duplicate rows cannot
@@ -1582,12 +1587,34 @@ class WorkerPay(tk.Tk):
             rows=self.db.execute(f'SELECT e.* FROM employees e WHERE {wsql} ORDER BY e.active DESC,e.emp_number,e.id LIMIT ? OFFSET ?',args+[EMPLOYEE_PAGE_SIZE,offset]).fetchall()
             tree.delete(*tree.get_children())
             month=date.today().strftime('%Y-%m')
-            for e in rows:
-                u,a,details=self.calc_employee(e['id'],month)
-                ps=', '.join(str(p['plot_no']) for p,*_ in details) or '—'
-                rates=', '.join(f"{p['plot_no']}: ৳{rate:,.2f}/day" for p,_,_,_,rate in details) or '—'
-                tree.insert('', 'end',iid=str(e['id']),values=(e['empid'],e['name'],ps,rates,f'{u:g}P',f'৳{a:,.2f}','Yes' if e['active'] else 'No'))
-            first=offset+1 if rows else 0;last=offset+len(rows);status.config(text=f'Showing {first}–{last} of {state["total"]} employees  •  Page {state["page"]+1}/{maxp+1}')
+            first=offset+1 if rows else 0;last=offset+len(rows);status.config(text=f'Loading employees…  Showing {first}–{last} of {state["total"]} employees  •  Page {state["page"]+1}/{maxp+1}')
+            render_token = state.get('render_token', 0) + 1
+            state['render_token'] = render_token
+            state['rows'] = rows
+            state['render_index'] = 0
+            def render_employee_chunk():
+                if state.get('render_token') != render_token or not self._widget_alive(tree):
+                    return
+                started = time.perf_counter()
+                while state['render_index'] < len(state['rows']):
+                    e = state['rows'][state['render_index']]
+                    state['render_index'] += 1
+                    u,a,details=self.calc_employee(e['id'],month)
+                    ps=', '.join(str(p['plot_no']) for p,*_ in details) or '—'
+                    rates=', '.join(f"{p['plot_no']}: ৳{rate:,.2f}/day" for p,_,_,_,rate in details) or '—'
+                    tree.insert('', 'end',iid=str(e['id']),values=(e['empid'],e['name'],ps,rates,f'{u:g}P',f'৳{a:,.2f}','Yes' if e['active'] else 'No'))
+                    if time.perf_counter() - started >= 0.010:
+                        break
+                if state['render_index'] < len(state['rows']):
+                    state['render_job'] = self.after(1, render_employee_chunk)
+                else:
+                    state['render_job'] = None
+                    status.config(text=f'Showing {first}–{last} of {state["total"]} employees  •  Page {state["page"]+1}/{maxp+1}')
+            old_job = state.get('render_job')
+            if old_job is not None:
+                try:self.after_cancel(old_job)
+                except Exception:pass
+            state['render_job'] = self.after(1, render_employee_chunk)
             for child in nav.winfo_children():child.destroy()
             b=ttk.Button(nav,text='‹  PREVIOUS',command=lambda:change(-1));b.state(['disabled'] if state['page']<=0 else ['!disabled']);b.pack(side='left',padx=3)
             b=ttk.Button(nav,text='NEXT  ›',command=lambda:change(1));b.state(['disabled'] if state['page']>=maxp else ['!disabled']);b.pack(side='left',padx=3)
@@ -1597,6 +1624,12 @@ class WorkerPay(tk.Tk):
             if state['job'] is not None:
                 try:self.after_cancel(state['job'])
                 except Exception:pass
+            render_job = state.get('render_job')
+            if render_job is not None:
+                try:self.after_cancel(render_job)
+                except Exception:pass
+                state['render_job'] = None
+            state['render_token'] = state.get('render_token', 0) + 1
             state['job']=self.after(180,lambda:load(True))
         for v in (name_f,empid_f,plot_f):v.trace_add('write',schedule)
         ttk.Button(actions,text='Edit Selected',command=lambda:self.edit_selected(tree)).pack(side='left',padx=6)
@@ -1657,8 +1690,21 @@ class WorkerPay(tk.Tk):
         left.grid_columnconfigure(0, weight=1)
         id_ent = field(left, 0, 'Employee ID', e['empid'] if e else self.next_employee_id(),
                        'Rule: Use a unique Employee ID in EMP + digits format. Examples: EMP001, EMP010, EMP1000. Plot / Place numbers are separate and are never converted to EMP IDs.')
-        field(left, 3, 'Name', e['name'] if e else '',
-              'Rule: Enter the worker’s full name exactly as it should appear in attendance, salary reports and exports. Example: Mamun.')
+        name_ent = field(left, 3, 'Name', e['name'] if e else '',
+              'Rule: Enter the worker’s full name. While typing, the first letter of each first/middle/last name is capitalized and the remaining letters are made lowercase. Example: md mAMUN hOSSAIN → Md Mamun Hossain.')
+        def format_name_live(_event=None):
+            try:
+                raw = vals['Name'].get()
+                formatted = self.format_person_name(raw)
+                if raw != formatted:
+                    pos = name_ent.index(tk.INSERT)
+                    name_ent.delete(0, 'end')
+                    name_ent.insert(0, formatted)
+                    name_ent.icursor(min(pos, len(formatted)))
+            except tk.TclError:
+                pass
+        name_ent.bind('<KeyRelease>', format_name_live, add='+')
+        name_ent.bind('<FocusOut>', format_name_live, add='+')
         field(left, 6, 'Start Date', e['start'] if e else date.today().isoformat(),
               'Rule: Enter the worker’s starting date in YYYY-MM-DD format. Example: 2026-09-26.')
 
@@ -1905,12 +1951,13 @@ class WorkerPay(tk.Tk):
         self._attendance_render_pending = pending
 
         def render_charts(*_):
+            pending['generation'] = pending.get('generation', 0) + 1
             if pending['job'] is not None:
                 try:
                     self.after_cancel(pending['job'])
                 except Exception:
                     pass
-            pending['job'] = self.after(90, do_render)
+            pending['job'] = self.after(80, do_render)
 
         def do_render():
             pending['job'] = None
@@ -1960,6 +2007,8 @@ class WorkerPay(tk.Tk):
 
         # Live month refresh: changing 2026-09 to 2026-10 immediately rebuilds every plot chart to 31 days.
         mv.trace_add('write', render_charts)
+        month_entry.bind('<Return>', lambda _e: (render_charts(), 'break')[1])
+        month_entry.bind('<FocusOut>', render_charts, add='+')
         render_charts()
         month_entry.focus_set()
         month_entry.selection_range(0, 'end')
@@ -2264,6 +2313,19 @@ class WorkerPay(tk.Tk):
         refresh()
         clear_form()
 
+    @staticmethod
+    def format_person_name(raw):
+        """Normalize a worker name while typing: first letter of each word is uppercase and the rest is lowercase."""
+        text = str(raw or '')
+        parts = text.split(' ')
+        out = []
+        for part in parts:
+            if not part:
+                out.append('')
+                continue
+            out.append(part.title())
+        return ' '.join(out)
+
     def normalize_code(self, raw):
         s = str(raw).strip().upper().replace(' ', '')
         aliases = {
@@ -2279,6 +2341,17 @@ class WorkerPay(tk.Tk):
         day_no=int(day_no)
         if not 1 <= day_no <= days:
             raise ValueError('Attendance day is outside the selected month.')
+        employee = self.db.execute('SELECT start FROM employees WHERE id=?', (employee_id,)).fetchone()
+        if not employee:
+            raise ValueError('Employee record no longer exists.')
+        start_date = str(employee['start'] or '').strip()
+        try:
+            datetime.strptime(start_date, '%Y-%m-%d').date()
+        except Exception:
+            raise ValueError('The employee has an invalid Start Date. Fix the employee record before entering attendance.')
+        day_value=f'{month}-{day_no:02d}'
+        if day_value < start_date:
+            raise ValueError(f'Attendance cannot be entered before the employee start date ({start_date}).')
         code=self.normalize_code(raw_code)
         valid=set(self.rules())
         if code and code not in valid:
@@ -2334,7 +2407,7 @@ class WorkerPay(tk.Tk):
 
         rule_lbl = tk.Label(
             box,
-            text='Rule: Each numbered box is exactly one calendar day in the selected month. Blank boxes are not attendance and contribute 0P. Click a box to edit it; Enter, Tab or clicking another day saves only the currently edited day.',
+            text='Rule: Each numbered box is exactly one calendar day in the selected month. Days before the employee Start Date are locked and cannot receive attendance. Blank editable boxes are not attendance and contribute 0P. Click a box to edit it; Enter, Tab or clicking another day saves only the currently edited day.',
             bg=PANEL, fg=MUTED, font=('Segoe UI', 9), justify='left', anchor='w')
         rule_lbl.pack(fill='x', padx=14, pady=(0, 9))
         box.bind('<Configure>', lambda ev: rule_lbl.configure(wraplength=max(460, ev.width-28)), add='+')
@@ -2350,6 +2423,11 @@ class WorkerPay(tk.Tk):
         self.register_scroll_area(hframe, grid_canvas, axis='x')
 
         col_w = 66
+        employee_start = str(e['start'] or '').strip()
+        try:
+            start_date = datetime.strptime(employee_start, '%Y-%m-%d').date()
+        except Exception:
+            start_date = None
         total_w = days * col_w + 6
         grid_canvas.configure(scrollregion=(0, 0, total_w, 82))
         lo=f'{month}-01';hi=f'{month}-{days:02d}'
@@ -2369,13 +2447,21 @@ class WorkerPay(tk.Tk):
                 x0 = 3 + (d - 1) * col_w
                 grid_canvas.create_text(x0 + col_w / 2, 13, text=str(d), fill=MUTED,
                                         font=('Segoe UI', 9, 'bold'), tags=(f'day:{d}',))
+                day_value = date(int(month[:4]), int(month[5:7]), d)
+                editable = (start_date is None or day_value >= start_date)
+                cell_fill = PANEL2 if editable else '#15181e'
+                cell_outline = BORDER if editable else '#242933'
                 grid_canvas.create_rectangle(x0 + 2, 29, x0 + col_w - 3, 67,
-                                             fill=PANEL2, outline=BORDER, width=1,
+                                             fill=cell_fill, outline=cell_outline, width=1,
                                              tags=(f'day:{d}', 'cell'))
                 code = codes.get(d, '')
                 if code:
-                    grid_canvas.create_text(x0 + col_w / 2, 48, text=code, fill=TEXT,
+                    grid_canvas.create_text(x0 + col_w / 2, 48, text=code,
+                                            fill=TEXT if editable else MUTED,
                                             font=('Segoe UI', 10, 'bold'), tags=(f'day:{d}', 'celltext'))
+                elif not editable:
+                    grid_canvas.create_text(x0 + col_w / 2, 48, text='—', fill='#667085',
+                                            font=('Segoe UI', 9, 'bold'), tags=(f'day:{d}', 'celltext'))
             grid_canvas.configure(scrollregion=(0, 0, total_w, 82))
 
         def refresh_header():
@@ -2421,6 +2507,10 @@ class WorkerPay(tk.Tk):
 
         def edit_day(day_no, move=False):
             if day_no < 1 or day_no > days:
+                return
+            day_value = date(int(month[:4]), int(month[5:7]), day_no)
+            if start_date is not None and day_value < start_date:
+                messagebox.showinfo('Attendance', f'Day {day_no} is locked because this employee started on {start_date.isoformat()}.', parent=self)
                 return
             if entry_holder['widget'] is not None and not close_editor(True):
                 return
@@ -2983,6 +3073,14 @@ def run_embedded_feature_regression_test():
             fail.append('Blank Day 7 unexpectedly exists before user entry')
         app.save_attendance_cell(eid,pid,'2026-10',7,'P')
         app.db.commit()
+        try:
+            app.save_attendance_cell(eid,pid,'2026-09',30,'P')
+            fail.append('Pre-start attendance was accepted')
+        except ValueError as ex:
+            if 'before the employee start date' not in str(ex):
+                fail.append(f'Unexpected pre-start attendance error: {ex}')
+        if app.format_person_name('mD mAMun hOSSAin') != 'Md Mamun Hossain':
+            fail.append(f'Name formatting regression: {app.format_person_name("mD mAMun hOSSAin")!r}')
         units,money,_,_=app.calc_plot(eid,pid,'2026-10')
         if units!=7.0 or money!=4200.0:fail.append(f'Day 7 insertion regression: units={units}, money={money}')
         try:
