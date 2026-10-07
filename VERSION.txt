@@ -1,1 +1,1 @@
-WorkerPay 4.5.1
+WorkerPay 4.5.2
