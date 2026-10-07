@@ -1952,6 +1952,15 @@ class WorkerPay(tk.Tk):
                     self.after_cancel(pending['job'])
                 except Exception:
                     pass
+            raw = mv.get().strip()
+            if not re.fullmatch(r'\d{4}-\d{2}', raw):
+                return
+            try:
+                y, m = map(int, raw.split('-'))
+                if not (1 <= m <= 12):
+                    return
+            except Exception:
+                return
             pending['job'] = self.after(80, do_render)
 
         def do_render():
