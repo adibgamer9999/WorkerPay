@@ -1,5 +1,5 @@
-name: WorkerPay Windows Release
-# Windows release includes the branded WorkerPay ICO.
+name: WorkerPay — Windows Release Build
+run-name: WorkerPay Windows release — EXE, Setup Installer & Portable ZIP
 
 on:
   workflow_dispatch:
@@ -12,37 +12,58 @@ permissions:
 
 jobs:
   build-windows:
+    name: Build and verify WorkerPay for Windows
     runs-on: windows-latest
 
     steps:
-      - name: Checkout WorkerPay
+      - name: Checkout source code
         uses: actions/checkout@v4
 
       - name: Set up Python 3.13
         uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-          cache: 'pip'
+          cache: pip
 
-      - name: Install dependencies
+      - name: Install application dependencies
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
 
-      - name: Compile check
+      - name: Validate Python syntax
         shell: pwsh
         run: |
           python -m py_compile app.py
 
-      - name: Run logic test
+      - name: Run WorkerPay logic tests
         shell: pwsh
         run: |
           python LOGIC_TEST.py
 
-      - name: Build WorkerPay EXE
+      - name: Read and validate release version
         shell: pwsh
         run: |
+          if (-not (Test-Path "VERSION.txt")) {
+            throw "VERSION.txt was not found."
+          }
+
+          $versionText = (Get-Content "VERSION.txt" -Raw).Trim()
+          if ($versionText -notmatch '^WorkerPay\s+(\d+\.\d+\.\d+)$') {
+            throw "VERSION.txt must contain a version like 'WorkerPay 4.5.3'. Found: $versionText"
+          }
+
+          $appVersion = $Matches[1]
+          "WORKERPAY_VERSION=$appVersion" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Release version: $appVersion"
+
+      - name: Build branded WorkerPay executable
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "workerpay.ico")) {
+            throw "The branded icon workerpay.ico is missing."
+          }
+
           python -m PyInstaller --noconfirm --clean --onefile --windowed --name WorkerPay --icon workerpay.ico --add-data "workerpay.ico;." app.py
 
           if (-not (Test-Path "dist\WorkerPay.exe")) {
@@ -51,16 +72,14 @@ jobs:
 
           Get-Item "dist\WorkerPay.exe" | Format-List FullName,Length
 
-      - name: Smoke test EXE
+      - name: Smoke-test the built executable
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path test-output | Out-Null
-
           $env:WORKERPAY_TEST_OUTPUT = "$PWD\test-output\database-health.txt"
 
           & ".\dist\WorkerPay.exe" --database-health-test
           $exeExitCode = $LASTEXITCODE
-
           $reportPath = "$PWD\test-output\database-health.txt"
 
           for ($i = 0; $i -lt 30 -and -not (Test-Path $reportPath); $i++) {
@@ -68,38 +87,29 @@ jobs:
           }
 
           if (-not (Test-Path $reportPath)) {
-            throw "WorkerPay.exe did not produce the database health report within 30 seconds. Exit code: $exeExitCode"
+            throw "WorkerPay.exe did not produce its health report within 30 seconds. Exit code: $exeExitCode"
           }
 
           $report = Get-Content $reportPath -Raw
-          $report
+          Write-Host $report
 
           if ($report -notmatch "RESULT:\s*PASS") {
-            throw "WorkerPay.exe database health test did not report PASS. Exit code: $exeExitCode"
+            throw "The executable database health test did not report PASS. Exit code: $exeExitCode"
           }
 
-          Write-Host "WorkerPay EXE health report passed (process exit code: $exeExitCode)."
+          Write-Host "Executable smoke test passed."
 
-      - name: Install Inno Setup
+      - name: Install Inno Setup compiler
         shell: pwsh
         run: |
           choco install innosetup -y --no-progress
-
           $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
-
           if (-not (Test-Path $iscc)) {
-            throw "Inno Setup compiler was not found."
+            throw "Inno Setup compiler was not found at $iscc"
           }
 
-      - name: Read WorkerPay version
+      - name: Prepare versioned installer script
         shell: pwsh
-        run: |
-          if (-not (Test-Path "VERSION.txt")) {
-            throw "VERSION.txt was not found."
-          }
-
-          $versionText = (Get-Content "VERSION.txt" -Raw).Trim()
-          if ($versionText -notmatch '^WorkerPay\\s+(\\d+\\.\\d+\\.\\d+)        shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path release | Out-Null
 
@@ -135,133 +145,54 @@ jobs:
           [Run]
           Filename: "{app}\WorkerPay.exe"; Description: "Launch WorkerPay"; Flags: nowait postinstall skipifsilent
           '@ | Set-Content -Path "WorkerPay.iss" -Encoding UTF8
-          (Get-Content "WorkerPay.iss" -Raw).Replace("__WORKERPAY_VERSION__", $env:WORKERPAY_VERSION) | Set-Content -Path "WorkerPay.iss" -Encoding UTF8
 
-      - name: Build WorkerPay Setup
+          $installerScript = Get-Content "WorkerPay.iss" -Raw
+          $installerScript = $installerScript.Replace("__WORKERPAY_VERSION__", $env:WORKERPAY_VERSION)
+          Set-Content -Path "WorkerPay.iss" -Value $installerScript -Encoding UTF8
+
+          if ((Get-Content "WorkerPay.iss" -Raw) -match "__WORKERPAY_VERSION__") {
+            throw "The installer version placeholder was not replaced."
+          }
+
+      - name: Build WorkerPay Setup installer
         shell: pwsh
         run: |
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "WorkerPay.iss"
-
           if ($LASTEXITCODE -ne 0) {
             throw "Inno Setup compilation failed."
           }
-
           if (-not (Test-Path "release\WorkerPay-Setup.exe")) {
             throw "WorkerPay-Setup.exe was not created."
           }
 
-      - name: Create Portable ZIP
+      - name: Create WorkerPay portable package
         shell: pwsh
         run: |
-          Compress-Archive `
-            -Path "dist\WorkerPay.exe" `
-            -DestinationPath "release\WorkerPay-Portable.zip" `
-            -Force
+          Compress-Archive -Path "dist\WorkerPay.exe" -DestinationPath "release\WorkerPay-Portable.zip" -Force
+          if (-not (Test-Path "release\WorkerPay-Portable.zip")) {
+            throw "WorkerPay-Portable.zip was not created."
+          }
 
-      - name: Upload EXE
+      - name: Upload Windows executable
         uses: actions/upload-artifact@v4
         with:
           name: WorkerPay-Windows-EXE
           path: dist/WorkerPay.exe
           if-no-files-found: error
+          retention-days: 14
 
-      - name: Upload Setup
+      - name: Upload Windows installer
         uses: actions/upload-artifact@v4
         with:
           name: WorkerPay-Windows-Setup
           path: release/WorkerPay-Setup.exe
           if-no-files-found: error
+          retention-days: 14
 
-      - name: Upload Portable ZIP
+      - name: Upload portable ZIP package
         uses: actions/upload-artifact@v4
         with:
           name: WorkerPay-Windows-Portable
           path: release/WorkerPay-Portable.zip
           if-no-files-found: error
-) {
-            throw "VERSION.txt has an invalid format: $versionText"
-          }
-
-          $appVersion = $Matches[1]
-          "WORKERPAY_VERSION=$appVersion" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          Write-Host "Building WorkerPay version $appVersion"
-
-      - name: Create installer script
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path release | Out-Null
-
-          @'
-          #define MyAppName "WorkerPay"
-          #define MyAppVersion "4.5.0"
-          #define MyAppPublisher "WorkerPay"
-          #define MyAppExeName "WorkerPay.exe"
-
-          [Setup]
-          AppId={{8D5E6D9C-2B3E-4F4C-9B6E-6A6A0E7D45B1}
-          AppName={#MyAppName}
-          AppVersion={#MyAppVersion}
-          AppPublisher={#MyAppPublisher}
-          DefaultDirName={autopf}\WorkerPay
-          DefaultGroupName=WorkerPay
-          OutputDir=release
-          OutputBaseFilename=WorkerPay-Setup
-          Compression=lzma
-          SolidCompression=yes
-          WizardStyle=modern
-          PrivilegesRequired=admin
-          UninstallDisplayName=WorkerPay
-          DisableProgramGroupPage=yes
-
-          [Files]
-          Source: "dist\WorkerPay.exe"; DestDir: "{app}"; Flags: ignoreversion
-
-          [Icons]
-          Name: "{autoprograms}\WorkerPay"; Filename: "{app}\WorkerPay.exe"
-          Name: "{autodesktop}\WorkerPay"; Filename: "{app}\WorkerPay.exe"
-
-          [Run]
-          Filename: "{app}\WorkerPay.exe"; Description: "Launch WorkerPay"; Flags: nowait postinstall skipifsilent
-          '@ | Set-Content -Path "WorkerPay.iss" -Encoding UTF8
-
-      - name: Build WorkerPay Setup
-        shell: pwsh
-        run: |
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "WorkerPay.iss"
-
-          if ($LASTEXITCODE -ne 0) {
-            throw "Inno Setup compilation failed."
-          }
-
-          if (-not (Test-Path "release\WorkerPay-Setup.exe")) {
-            throw "WorkerPay-Setup.exe was not created."
-          }
-
-      - name: Create Portable ZIP
-        shell: pwsh
-        run: |
-          Compress-Archive `
-            -Path "dist\WorkerPay.exe" `
-            -DestinationPath "release\WorkerPay-Portable.zip" `
-            -Force
-
-      - name: Upload EXE
-        uses: actions/upload-artifact@v4
-        with:
-          name: WorkerPay-Windows-EXE
-          path: dist/WorkerPay.exe
-          if-no-files-found: error
-
-      - name: Upload Setup
-        uses: actions/upload-artifact@v4
-        with:
-          name: WorkerPay-Windows-Setup
-          path: release/WorkerPay-Setup.exe
-          if-no-files-found: error
-
-      - name: Upload Portable ZIP
-        uses: actions/upload-artifact@v4
-        with:
-          name: WorkerPay-Windows-Portable
-          path: release/WorkerPay-Portable.zip
-          if-no-files-found: error
+          retention-days: 14
