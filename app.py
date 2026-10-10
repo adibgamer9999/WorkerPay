@@ -2344,9 +2344,11 @@ class WorkerPay(tk.Tk):
 
         # ---------- filters ----------
         filter_card=tk.Frame(root,bg=PANEL,highlightbackground=BORDER,highlightthickness=1)
-        filter_card.grid(row=1,column=0,sticky='nsew',padx=(0,5))
+        # The ledger must use the full page width; confining it to one half
+        # makes seven filter fields and the records table unreadably narrow.
+        filter_card.grid(row=1,column=0,columnspan=2,sticky='nsew',padx=0)
         filter_card.grid_rowconfigure(3,weight=1)
-        for i in range(7): filter_card.grid_columnconfigure(i,weight=1,minsize=90)
+        for i in range(7): filter_card.grid_columnconfigure(i,weight=1,minsize=72)
         tk.Label(filter_card,text='FILTERS',bg=PANEL,fg=TEXT,font=('Segoe UI',12,'bold')).grid(
             row=0,column=0,columnspan=7,sticky='w',padx=14,pady=(10,3))
         filter_vars={k:tk.StringVar() for k in ('date_from','date_to','name','empid','reason','min','max')}
