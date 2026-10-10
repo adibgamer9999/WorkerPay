@@ -16,7 +16,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 
 APP_NAME = 'WorkerPay'
-APP_VERSION = '4.5.3'
+APP_VERSION = '4.5.3.1'
 
 # Installed program files belong on the Windows system drive (normally C:\Program Files\WorkerPay).
 # User data stays in the user's C: drive AppData location so Program Files can remain read-only.
@@ -1273,6 +1273,7 @@ class WorkerPay(tk.Tk):
         start=max(1,int(start)); end=min(maxday,int(end if end is not None else maxday))
         if end < start:
             end=start
+        effective_lo=f'{month}-{start:02d}'
         rows=self.db.execute(
             'SELECT id,day,code FROM attendance WHERE employee_id=? AND plot_id=? '
             'AND day>=? AND day<=? ORDER BY day,id',
