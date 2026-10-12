@@ -16,7 +16,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 
 APP_NAME = 'WorkerPay'
-APP_VERSION = '4.5.3.7'
+APP_VERSION = '4.5.3.8'
 
 # Installed program files belong on the Windows system drive (normally C:\Program Files\WorkerPay).
 # User data stays in the user's C: drive AppData location so Program Files can remain read-only.
@@ -1489,21 +1489,25 @@ class WorkerPay(tk.Tk):
                 except Exception:pass
             page['job']=self.after(160,lambda:load(True))
         for v in (name_f,empid_f,plot_f):v.trace_add('write',schedule)
-        def open_dashboard_row(event):
+        def open_dashboard_id_cell(event):
+            # Only react to a real data cell in the Employee ID column.
+            if tree.identify_region(event.x, event.y) != 'cell':
+                return
+            if tree.identify_column(event.x) != '#1':
+                return
             row_id = tree.identify_row(event.y)
             if not row_id:
                 return
-            tree.selection_set(row_id)
-            tree.focus(row_id)
             try:
-                employee_id = int(row_id)
+                employee_id = int(row_id)  # Treeview iid is the database employee ID.
             except (TypeError, ValueError):
                 return
+            tree.selection_set(row_id)
+            tree.focus(row_id)
             self.open_employee(employee_id, month)
-        def open_dashboard_id_cell(event):
-            if tree.identify_column(event.x) == '#1':
-                open_dashboard_row(event)
-        tree.bind('<Double-1>', open_dashboard_id_cell)
+            return 'break'
+        tree.unbind('<Double-1>')
+        tree.bind('<Double-1>', open_dashboard_id_cell, add=False)
         load(True)
 
     def open_from_tree(self, tree, month):
@@ -1605,9 +1609,24 @@ class WorkerPay(tk.Tk):
         ttk.Button(actions,text='Edit Selected',command=lambda:self.edit_selected(tree)).pack(side='left',padx=6)
         ttk.Button(actions,text='Remove Selected',command=lambda:self.remove_selected(tree)).pack(side='left',padx=6)
         def open_employee_id_cell(event):
-            if tree.identify_column(event.x) == '#1':
-                self.open_selected(tree, event)
-        tree.bind('<Double-1>', open_employee_id_cell)
+            # Match the actual ID cell, not a row heading, blank area, or scrollbar.
+            if tree.identify_region(event.x, event.y) != 'cell':
+                return
+            if tree.identify_column(event.x) != '#1':
+                return
+            row_id = tree.identify_row(event.y)
+            if not row_id:
+                return
+            try:
+                employee_id = int(row_id)  # iid is set from employees.id in load().
+            except (TypeError, ValueError):
+                return
+            tree.selection_set(row_id)
+            tree.focus(row_id)
+            self.open_employee(employee_id, date.today().strftime('%Y-%m'))
+            return 'break'
+        tree.unbind('<Double-1>')
+        tree.bind('<Double-1>', open_employee_id_cell, add=False)
         load(True)
         return tree
 
