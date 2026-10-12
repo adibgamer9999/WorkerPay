@@ -1,5 +1,5 @@
-name: WorkerPay — Windows Release Build
-run-name: WorkerPay Windows release — EXE, Setup Installer & Portable ZIP
+name: WorkerPay 4.5.3.3 — Attendance Navigation Fix — 2026-10-12
+run-name: WorkerPay 4.5.3.3 — Attendance Navigation & Employee UI — 2026-10-12
 
 on:
   workflow_dispatch:
