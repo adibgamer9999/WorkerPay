@@ -16,7 +16,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 
 APP_NAME = 'WorkerPay'
-APP_VERSION = '4.5.3.8'
+APP_VERSION = '4.5.3.9'
 
 # Installed program files belong on the Windows system drive (normally C:\Program Files\WorkerPay).
 # User data stays in the user's C: drive AppData location so Program Files can remain read-only.
@@ -1755,7 +1755,7 @@ class WorkerPay(tk.Tk):
         self.register_scroll_area(plot_box, rows_canvas, axis='y', default=True)
         plot_rows = []
 
-        def add_plot_row(plot_no='', rate='', scroll_to=False):
+        def add_plot_row(plot_no='', rate='', scroll_to=False, plot_id=None):
             row = tk.Frame(rows_frame, bg='#141821')
             row.pack(fill='x', padx=4, pady=4)
             row.grid_columnconfigure(0, weight=1)
@@ -1773,7 +1773,7 @@ class WorkerPay(tk.Tk):
                           font=('Segoe UI', 10))
             if rate != '': rr.insert(0, str(rate))
             rr.grid(row=0, column=1, sticky='ew', padx=(8, 8), ipady=6)
-            holder = {'row': row, 'pn': pn, 'rr': rr}
+            holder = {'row': row, 'pn': pn, 'rr': rr, 'plot_id': plot_id}
             def remove():
                 if len(plot_rows) == 1:
                     pn.delete(0, 'end'); rr.delete(0, 'end'); pn.focus_set(); return
@@ -1790,7 +1790,7 @@ class WorkerPay(tk.Tk):
 
         existing = self.plots(eid, include_inactive=True) if e else []
         if existing:
-            for p in existing: add_plot_row(p['plot_no'], p['daily_rate'])
+            for p in existing: add_plot_row(p['plot_no'], p['daily_rate'], plot_id=p['id'])
         else:
             add_plot_row()
         self.after_idle(lambda: rows_canvas.yview_moveto(0.0))
@@ -1835,22 +1835,32 @@ class WorkerPay(tk.Tk):
                     self.db.execute('UPDATE employees SET empid=?,emp_number=?,name=?,start=?,active=? WHERE id=?',
                                     (empid, emp_number, name, st, int(active.get()), eid2))
                     current = self.db.execute('SELECT * FROM plots WHERE employee_id=?', (eid2,)).fetchall()
-                    ci = {str(r['plot_no']).casefold(): r for r in current}; keep=set()
-                    for pn, rate in parsed:
-                        old = ci.get(pn.casefold())
+                    current_by_id = {int(r['id']): r for r in current}
+                    current_by_name = {str(r['plot_no']).casefold(): r for r in current}
+                    keep=set()
+                    for item, (pn, rate) in zip(plot_rows, parsed):
+                        # Existing row IDs take priority: changing a plot number must
+                        # rename the existing plot, preserving attendance and rate history.
+                        plot_id = item.get('plot_id')
+                        old = current_by_id.get(int(plot_id)) if plot_id is not None else None
+                        if old is None:
+                            old = current_by_name.get(pn.casefold())
                         if old:
-                            keep.add(old['id'])
-                            if abs(float(old['daily_rate'])-rate) > 1e-9:
-                                self.db.execute('UPDATE plots SET plot_no=?,daily_rate=?,active=1 WHERE id=?',(pn,rate,old['id']))
-                                self.db.execute('INSERT OR REPLACE INTO plot_rate_history(plot_id,effective_from,daily_rate) VALUES(?,?,?)',(old['id'],now,rate))
-                            else:
-                                self.db.execute('UPDATE plots SET plot_no=?,active=1 WHERE id=?',(pn,old['id']))
+                            keep.add(int(old['id']))
+                            rate_changed = abs(float(old['daily_rate'])-rate) > 1e-9
+                            self.db.execute('UPDATE plots SET plot_no=?,daily_rate=?,active=1 WHERE id=?',
+                                            (pn,rate,old['id']))
+                            if rate_changed:
+                                self.db.execute('INSERT OR REPLACE INTO plot_rate_history(plot_id,effective_from,daily_rate) VALUES(?,?,?)',
+                                                (old['id'],now,rate))
                         else:
                             cur=self.db.execute('INSERT INTO plots(employee_id,plot_no,daily_rate,active) VALUES(?,?,?,1)',(eid2,pn,rate))
-                            keep.add(cur.lastrowid)
-                            self.db.execute('INSERT OR REPLACE INTO plot_rate_history(plot_id,effective_from,daily_rate) VALUES(?,?,?)',(cur.lastrowid,st,rate))
+                            keep.add(int(cur.lastrowid))
+                            self.db.execute('INSERT OR REPLACE INTO plot_rate_history(plot_id,effective_from,daily_rate) VALUES(?,?,?)',
+                                            (cur.lastrowid,st,rate))
                     for old in current:
-                        if old['id'] not in keep: self.db.execute('UPDATE plots SET active=0 WHERE id=?',(old['id'],))
+                        if int(old['id']) not in keep:
+                            self.db.execute('UPDATE plots SET active=0 WHERE id=?',(old['id'],))
                 else:
                     cur=self.db.execute('INSERT INTO employees(empid,emp_number,name,daily_rate,start,active) VALUES(?,?,?,?,?,?)',(empid,emp_number,name,0,st,int(active.get())))
                     eid2=cur.lastrowid
