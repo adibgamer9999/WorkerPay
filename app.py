@@ -877,6 +877,23 @@ class WorkerPay(tk.Tk):
         old_page=getattr(self,'_page_key',None)
         target_name=key or getattr(target,'__name__',repr(target))
         if getattr(self,'_transition_busy',False):
+            # Do not silently discard navigation requests (e.g. opening attendance
+            # while a previous section is still sliding). Queue the latest request
+            # and run it as soon as the active transition releases the page.
+            self._pending_navigation=(target,duration,key)
+            if not getattr(self,'_pending_navigation_job',None):
+                def run_pending_navigation():
+                    self._pending_navigation_job=None
+                    pending=getattr(self,'_pending_navigation',None)
+                    if pending is None:
+                        return
+                    if getattr(self,'_transition_busy',False):
+                        self._pending_navigation_job=self.after(40,run_pending_navigation)
+                        return
+                    self._pending_navigation=None
+                    callback,queued_duration,queued_key=pending
+                    self.navigate(callback,duration=queued_duration,key=queued_key)
+                self._pending_navigation_job=self.after(40,run_pending_navigation)
             return
         if old is not None and old_page==target_name and target_name:
             return
@@ -944,6 +961,18 @@ class WorkerPay(tk.Tk):
                 self._transition_busy=False
                 if old is not None and old.winfo_exists():
                     old.destroy()
+                if getattr(self,'_pending_navigation',None) is not None and not getattr(self,'_pending_navigation_job',None):
+                    def run_pending_after_transition():
+                        self._pending_navigation_job=None
+                        pending=getattr(self,'_pending_navigation',None)
+                        if pending is None:return
+                        if getattr(self,'_transition_busy',False):
+                            self._pending_navigation_job=self.after(40,run_pending_after_transition)
+                            return
+                        self._pending_navigation=None
+                        callback,queued_duration,queued_key=pending
+                        self.navigate(callback,duration=queued_duration,key=queued_key)
+                    self._pending_navigation_job=self.after(0,run_pending_after_transition)
             except tk.TclError:
                 self._transition_job=None
                 self._transition_busy=False
