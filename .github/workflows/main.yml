@@ -1,5 +1,5 @@
-name: WorkerPay 4.5.3.3 — Attendance Navigation Fix — 2026-10-12
-run-name: WorkerPay 4.5.3.3 — Attendance Navigation & Employee UI — 2026-10-12
+name: WorkerPay 4.5.3.4 — Windows Release Verification — 2026-10-12
+run-name: WorkerPay 4.5.3.4 — Attendance & Installer Fix — 2026-10-12
 
 on:
   workflow_dispatch:
@@ -50,7 +50,7 @@ jobs:
 
           $versionText = (Get-Content "VERSION.txt" -Raw).Trim()
           if ($versionText -notmatch '^WorkerPay\s+(\d+\.\d+\.\d+\.\d+)$') {
-            throw "VERSION.txt must contain a version like 'WorkerPay 4.5.3.1'. Found: $versionText"
+            throw "VERSION.txt must contain a four-part version like 'WorkerPay 4.5.3.4'. Found: $versionText"
           }
 
           $appVersion = $Matches[1]
@@ -154,7 +154,7 @@ jobs:
             throw "The installer version placeholder was not replaced."
           }
 
-      - name: Build WorkerPay Setup installer
+      - name: Build and validate WorkerPay Setup installer
         shell: pwsh
         run: |
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "WorkerPay.iss"
@@ -165,7 +165,7 @@ jobs:
             throw "WorkerPay-Setup.exe was not created."
           }
 
-      - name: Create WorkerPay portable package
+      - name: Build WorkerPay portable ZIP package
         shell: pwsh
         run: |
           Compress-Archive -Path "dist\WorkerPay.exe" -DestinationPath "release\WorkerPay-Portable.zip" -Force
