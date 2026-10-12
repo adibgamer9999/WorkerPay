@@ -1,5 +1,5 @@
-name: WorkerPay 4.5.3.7 — Attendance Routing & Windows Release — 2026-10-12
-run-name: WorkerPay 4.5.3.7 — Direct Attendance Navigation Fix — 2026-10-12
+name: WorkerPay 4.5.3.8 — Attendance Double-Click Verification — 2026-10-12
+run-name: WorkerPay 4.5.3.8 — Employee ID Navigation & Windows Package — 2026-10-12
 
 on:
   workflow_dispatch:
@@ -50,7 +50,7 @@ jobs:
 
           $versionText = (Get-Content "VERSION.txt" -Raw).Trim()
           if ($versionText -notmatch '^WorkerPay\s+(\d+\.\d+\.\d+\.\d+)$') {
-            throw "VERSION.txt must contain a four-part version like 'WorkerPay 4.5.3.7'. Found: $versionText"
+            throw "VERSION.txt must contain a four-part version like 'WorkerPay 4.5.3.8'. Found: $versionText"
           }
 
           $appVersion = $Matches[1]
