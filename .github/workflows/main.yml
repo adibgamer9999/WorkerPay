@@ -143,7 +143,6 @@ jobs:
           Name: "{autodesktop}\WorkerPay"; Filename: "{app}\WorkerPay.exe"
 
           [Run]
-          Filename: "{app}\WorkerPay.exe"; Description: "Launch WorkerPay"; Flags: nowait postinstall skipifsilent
           '@ | Set-Content -Path "WorkerPay.iss" -Encoding UTF8
 
           $installerScript = Get-Content "WorkerPay.iss" -Raw
