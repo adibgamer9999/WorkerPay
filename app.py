@@ -16,7 +16,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 
 APP_NAME = 'WorkerPay'
-APP_VERSION = '4.5.3.5'
+APP_VERSION = '4.5.3.6'
 
 # Installed program files belong on the Windows system drive (normally C:\Program Files\WorkerPay).
 # User data stays in the user's C: drive AppData location so Program Files can remain read-only.
@@ -1504,8 +1504,7 @@ class WorkerPay(tk.Tk):
         def open_dashboard_id_cell(event):
             if tree.identify_column(event.x) == '#1':
                 open_dashboard_row(event)
-        tree.bind('<ButtonRelease-1>', open_dashboard_id_cell)
-        tree.bind('<Double-1>', open_dashboard_row)
+        tree.bind('<Double-1>', open_dashboard_id_cell)
         load(True)
 
     def open_from_tree(self, tree, month):
@@ -1526,6 +1525,7 @@ class WorkerPay(tk.Tk):
             ttk.Entry(filters,textvariable=var,width=width).pack(side='left',padx=(0,8))
         actions=tk.Frame(self.main,bg=BG);actions.pack(fill='x',padx=26,pady=(3,8))
         ttk.Button(actions,text='Add Employee',style='Accent.TButton',command=lambda:self.navigate(self.employee_editor)).pack(side='left')
+        ttk.Button(actions,text='Open Attendance',command=lambda:self.open_selected(tree)).pack(side='left',padx=(8,0))
         holder=tk.Frame(self.main,bg=BG);holder.pack(fill='both',expand=True,padx=26,pady=(0,4))
         wrap=tk.Frame(holder,bg=BG);wrap.pack(fill='both',expand=True)
         wrap.grid_rowconfigure(0,weight=1);wrap.grid_columnconfigure(0,weight=1)
@@ -1608,8 +1608,7 @@ class WorkerPay(tk.Tk):
         def open_employee_id_cell(event):
             if tree.identify_column(event.x) == '#1':
                 self.open_selected(tree, event)
-        tree.bind('<ButtonRelease-1>', open_employee_id_cell)
-        tree.bind('<Double-1>',lambda event:self.open_selected(tree,event))
+        tree.bind('<Double-1>', open_employee_id_cell)
         load(True)
         return tree
 
