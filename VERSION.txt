@@ -1,1 +1,1 @@
-WorkerPay 4.5.3.6
+WorkerPay 4.5.3.7
