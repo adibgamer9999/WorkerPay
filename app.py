@@ -16,7 +16,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 
 APP_NAME = 'WorkerPay'
-APP_VERSION = '4.5.3.1'
+APP_VERSION = '4.5.3.2'
 
 # Installed program files belong on the Windows system drive (normally C:\Program Files\WorkerPay).
 # User data stays in the user's C: drive AppData location so Program Files can remain read-only.
@@ -1543,7 +1543,7 @@ class WorkerPay(tk.Tk):
     def open_from_tree(self, tree, month):
         s = tree.selection()
         if s:
-            self.navigate(lambda: self.open_employee(int(s[0]), month), key='attendance')
+            self.navigate(lambda: self.open_employee(int(s[0]), month), key=f'attendance:{int(s[0])}')
 
     # ---------- employees ----------
     def employees(self):
@@ -1558,6 +1558,7 @@ class WorkerPay(tk.Tk):
             ttk.Entry(filters,textvariable=var,width=width).pack(side='left',padx=(0,8))
         actions=tk.Frame(self.main,bg=BG);actions.pack(fill='x',padx=26,pady=(3,8))
         ttk.Button(actions,text='Add Employee',style='Accent.TButton',command=lambda:self.navigate(self.employee_editor)).pack(side='left')
+        ttk.Button(actions,text='Open Attendance',command=lambda:self.open_selected(tree)).pack(side='left',padx=(8,0))
         holder=tk.Frame(self.main,bg=BG);holder.pack(fill='both',expand=True,padx=26,pady=(0,4))
         wrap=tk.Frame(holder,bg=BG);wrap.pack(fill='both',expand=True)
         wrap.grid_rowconfigure(0,weight=1);wrap.grid_columnconfigure(0,weight=1)
@@ -1652,7 +1653,7 @@ class WorkerPay(tk.Tk):
     def open_selected(self, tree):
         s = tree.selection()
         if s:
-            self.navigate(lambda: self.open_employee(int(s[0]), date.today().strftime('%Y-%m')), key='attendance')
+            self.navigate(lambda: self.open_employee(int(s[0]), date.today().strftime('%Y-%m')), key=f'attendance:{int(s[0])}')
 
     def employee_editor(self, eid=None):
         self._page_key = 'employee_editor'
