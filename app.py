@@ -16,7 +16,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 
 APP_NAME = 'WorkerPay'
-APP_VERSION = '4.5.3.6'
+APP_VERSION = '4.5.3.7'
 
 # Installed program files belong on the Windows system drive (normally C:\Program Files\WorkerPay).
 # User data stays in the user's C: drive AppData location so Program Files can remain read-only.
@@ -1499,8 +1499,7 @@ class WorkerPay(tk.Tk):
                 employee_id = int(row_id)
             except (TypeError, ValueError):
                 return
-            self.navigate(lambda eid=employee_id: self.open_employee(eid, month),
-                          key=f'attendance:{employee_id}')
+            self.open_employee(employee_id, month)
         def open_dashboard_id_cell(event):
             if tree.identify_column(event.x) == '#1':
                 open_dashboard_row(event)
@@ -1634,8 +1633,7 @@ class WorkerPay(tk.Tk):
         except (TypeError, ValueError):
             return
         month = date.today().strftime('%Y-%m')
-        self.navigate(lambda eid=employee_id, m=month: self.open_employee(eid, m),
-                      key=f'attendance:{employee_id}')
+        self.open_employee(employee_id, month)
 
     def employee_editor(self, eid=None):
         self._page_key = 'employee_editor'
