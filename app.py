@@ -1538,7 +1538,20 @@ class WorkerPay(tk.Tk):
                 except Exception:pass
             page['job']=self.after(160,lambda:load(True))
         for v in (name_f,empid_f,plot_f):v.trace_add('write',schedule)
-        tree.bind('<Double-1>',lambda _e:self.open_from_tree(tree,month));load(True)
+        def open_dashboard_row(event):
+            row_id = tree.identify_row(event.y)
+            if not row_id:
+                return
+            tree.selection_set(row_id)
+            tree.focus(row_id)
+            try:
+                employee_id = int(row_id)
+            except (TypeError, ValueError):
+                return
+            self.navigate(lambda eid=employee_id: self.open_employee(eid, month),
+                          key=f'attendance:{employee_id}')
+        tree.bind('<Double-1>', open_dashboard_row)
+        load(True)
 
     def open_from_tree(self, tree, month):
         s = tree.selection()
@@ -1639,7 +1652,7 @@ class WorkerPay(tk.Tk):
         ttk.Button(actions,text='Edit Selected',command=lambda:self.edit_selected(tree)).pack(side='left',padx=6)
         ttk.Button(actions,text='Open Attendance',command=lambda:self.open_selected(tree)).pack(side='left')
         ttk.Button(actions,text='Remove Selected',command=lambda:self.remove_selected(tree)).pack(side='left',padx=6)
-        tree.bind('<Double-1>',lambda _e:self.open_selected(tree))
+        tree.bind('<Double-1>',lambda event:self.open_selected(tree,event))
         load(True)
         return tree
 
@@ -1650,10 +1663,23 @@ class WorkerPay(tk.Tk):
             return
         self.employee_editor(int(s[0]))
 
-    def open_selected(self, tree):
-        s = tree.selection()
-        if s:
-            self.navigate(lambda: self.open_employee(int(s[0]), date.today().strftime('%Y-%m')), key=f'attendance:{int(s[0])}')
+    def open_selected(self, tree, event=None):
+        # Resolve the row under the pointer: Treeview selection can lag on double-click.
+        if event is not None:
+            row_id = tree.identify_row(event.y)
+            if row_id:
+                tree.selection_set(row_id)
+                tree.focus(row_id)
+        selected = tree.selection()
+        if not selected:
+            return
+        try:
+            employee_id = int(selected[0])
+        except (TypeError, ValueError):
+            return
+        month = date.today().strftime('%Y-%m')
+        self.navigate(lambda eid=employee_id, m=month: self.open_employee(eid, m),
+                      key=f'attendance:{employee_id}')
 
     def employee_editor(self, eid=None):
         self._page_key = 'employee_editor'
