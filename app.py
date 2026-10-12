@@ -1604,7 +1604,6 @@ class WorkerPay(tk.Tk):
             state['job']=self.after(180,lambda:load(True))
         for v in (name_f,empid_f,plot_f):v.trace_add('write',schedule)
         ttk.Button(actions,text='Edit Selected',command=lambda:self.edit_selected(tree)).pack(side='left',padx=6)
-        ttk.Button(actions,text='Open Attendance',command=lambda:self.open_selected(tree)).pack(side='left')
         ttk.Button(actions,text='Remove Selected',command=lambda:self.remove_selected(tree)).pack(side='left',padx=6)
         def open_employee_id_cell(event):
             if tree.identify_column(event.x) == '#1':
