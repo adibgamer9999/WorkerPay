@@ -16,7 +16,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 
 APP_NAME = 'WorkerPay'
-APP_VERSION = '4.5.3.3'
+APP_VERSION = '4.5.3.4'
 
 # Installed program files belong on the Windows system drive (normally C:\Program Files\WorkerPay).
 # User data stays in the user's C: drive AppData location so Program Files can remain read-only.
@@ -868,116 +868,27 @@ class WorkerPay(tk.Tk):
             except tk.TclError: pass
 
     def navigate(self,target,duration=0,key=None):
-        """Switch pages immediately and reliably.
-
-        Page-slide animations were disabled because they could delay or interfere
-        with employee-to-attendance navigation on slower PCs. Build the destination
-        first, then finish the zero-duration transition synchronously.
-        """
-        old=getattr(self,'main',None)
-        old_page=getattr(self,'_page_key',None)
-        target_name=key or getattr(target,'__name__',repr(target))
-        if getattr(self,'_transition_busy',False):
-            # Do not silently discard navigation requests (e.g. opening attendance
-            # while a previous section is still sliding). Queue the latest request
-            # and run it as soon as the active transition releases the page.
-            self._pending_navigation=(target,duration,key)
-            if not getattr(self,'_pending_navigation_job',None):
-                def run_pending_navigation():
-                    self._pending_navigation_job=None
-                    pending=getattr(self,'_pending_navigation',None)
-                    if pending is None:
-                        return
-                    if getattr(self,'_transition_busy',False):
-                        self._pending_navigation_job=self.after(40,run_pending_navigation)
-                        return
-                    self._pending_navigation=None
-                    callback,queued_duration,queued_key=pending
-                    self.navigate(callback,duration=queued_duration,key=queued_key)
-                self._pending_navigation_job=self.after(40,run_pending_navigation)
-            return
-        if old is not None and old_page==target_name and target_name:
-            return
-        self._transition_busy=True
-        self._in_navigation=True
+        """Switch pages synchronously; never defer navigation behind an animation."""
+        self._transition_busy = False
+        self._in_navigation = True
         try:
             target()
-        except Exception:
-            self._in_navigation=False
-            self._transition_busy=False
-            raise
-        finally:
-            self._in_navigation=False
-        new=getattr(self,'main',None)
-        if new is old or new is None:
-            self._transition_busy=False
-            return
-        self._page_key=target_name
-        try:self.update_idletasks()
-        except Exception:pass
-        self._animate_page_transition(old,new,duration)
-
-    def _animate_page_transition(self,old,new,duration=1650):
-        if self._transition_job is not None:
-            try:self.after_cancel(self._transition_job)
-            except Exception:pass
-            self._transition_job=None
-        try:
-            total=max(0,min(2000,int(duration)))
-        except Exception:
-            total=1650
-        if total<=0:
+            self._page_key = key or getattr(target, '__name__', 'page')
             try:
-                new.place_configure(relx=0,rely=0,relwidth=1,relheight=1)
-                new.lift()
-                if old is not None and old.winfo_exists(): old.destroy()
-            except tk.TclError:
-                pass
-            self._transition_busy=False
-            return
-        try:
-            new.place_configure(relx=1.0,rely=0,relwidth=1,relheight=1)
-            new.lift()
-            self.update_idletasks()
-        except tk.TclError:
-            self._transition_busy=False
-            return
-        started=time.perf_counter()
-        def tick():
-            try:
-                if not new.winfo_exists():
-                    self._transition_job=None
-                    self._transition_busy=False
-                    return
-                elapsed_ms=(time.perf_counter()-started)*1000.0
-                t=max(0.0,min(1.0,elapsed_ms/float(total)))
-                eased=1.0-(1.0-t)**3
-                new.place_configure(relx=1.0-eased)
-                if t<1.0:
-                    self._transition_job=self.after(16,tick)
-                    return
-                new.place_configure(relx=0,rely=0,relwidth=1,relheight=1)
                 self.update_idletasks()
-                self._transition_job=None
-                self._transition_busy=False
-                if old is not None and old.winfo_exists():
-                    old.destroy()
-                if getattr(self,'_pending_navigation',None) is not None and not getattr(self,'_pending_navigation_job',None):
-                    def run_pending_after_transition():
-                        self._pending_navigation_job=None
-                        pending=getattr(self,'_pending_navigation',None)
-                        if pending is None:return
-                        if getattr(self,'_transition_busy',False):
-                            self._pending_navigation_job=self.after(40,run_pending_after_transition)
-                            return
-                        self._pending_navigation=None
-                        callback,queued_duration,queued_key=pending
-                        self.navigate(callback,duration=queued_duration,key=queued_key)
-                    self._pending_navigation_job=self.after(0,run_pending_after_transition)
-            except tk.TclError:
-                self._transition_job=None
-                self._transition_busy=False
-        self._transition_job=self.after(0,tick)
+            except Exception:
+                pass
+        finally:
+            self._in_navigation = False
+            self._transition_busy = False
+            self._pending_navigation = None
+            job = getattr(self, '_pending_navigation_job', None)
+            if job is not None:
+                try:
+                    self.after_cancel(job)
+                except Exception:
+                    pass
+                self._pending_navigation_job = None
 
     # ---------- smooth/native scrolling ----------
     def _widget_alive(self,w):
@@ -1580,6 +1491,10 @@ class WorkerPay(tk.Tk):
                 return
             self.navigate(lambda eid=employee_id: self.open_employee(eid, month),
                           key=f'attendance:{employee_id}')
+        def open_dashboard_id_cell(event):
+            if tree.identify_column(event.x) == '#1':
+                open_dashboard_row(event)
+        tree.bind('<ButtonRelease-1>', open_dashboard_id_cell)
         tree.bind('<Double-1>', open_dashboard_row)
         load(True)
 
@@ -1681,6 +1596,10 @@ class WorkerPay(tk.Tk):
         ttk.Button(actions,text='Edit Selected',command=lambda:self.edit_selected(tree)).pack(side='left',padx=6)
         ttk.Button(actions,text='Open Attendance',command=lambda:self.open_selected(tree)).pack(side='left')
         ttk.Button(actions,text='Remove Selected',command=lambda:self.remove_selected(tree)).pack(side='left',padx=6)
+        def open_employee_id_cell(event):
+            if tree.identify_column(event.x) == '#1':
+                self.open_selected(tree, event)
+        tree.bind('<ButtonRelease-1>', open_employee_id_cell)
         tree.bind('<Double-1>',lambda event:self.open_selected(tree,event))
         load(True)
         return tree
