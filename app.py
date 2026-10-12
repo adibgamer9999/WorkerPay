@@ -1105,20 +1105,27 @@ class WorkerPay(tk.Tk):
             except Exception: pass
         self._scroll_jobs.clear()
 
-    def header(self, title, sub=''):
+    def header(self, title, sub='', show_attendance_key=False):
         f = tk.Frame(self.main, bg=BG)
         f.pack(fill='x', padx=26, pady=(20, 8))
         tk.Label(f, text=title, bg=BG, fg=TEXT, font=('Segoe UI', 25, 'bold')).pack(anchor='w')
+        sub_lbl = None
         if sub:
             sub_lbl = tk.Label(f, text=sub, bg=BG, fg=MUTED, font=('Segoe UI', 10), justify='left', anchor='w', wraplength=900)
             sub_lbl.pack(anchor='w', fill='x', pady=(2, 0))
-        rules = ('Attendance key:  P = Full Day (1P)  •  P/2 = Half Day (0.5P)  •  '
-                 'P+P/2 = Full Day + Half Night (1.5P)  •  2P = Full Day + Full Night (2P)  •  A = Absent (0P)')
-        rule_lbl = tk.Label(f, text=rules, bg=BG, fg='#8ab4ff', font=('Segoe UI', 9, 'bold'),
-                            justify='left', anchor='w', wraplength=900)
-        rule_lbl.pack(anchor='w', fill='x', pady=(7, 0))
-        f.bind('<Configure>', lambda ev: (sub_lbl.configure(wraplength=max(500, ev.width-10)) if sub else None), add='+')
-        f.bind('<Configure>', lambda ev: rule_lbl.configure(wraplength=max(500, ev.width-10)), add='+')
+        rule_lbl = None
+        if show_attendance_key:
+            rules = ('Attendance key:  P = Full Day (1P)  •  P/2 = Half Day (0.5P)  •  '
+                     'P+P/2 = Full Day + Half Night (1.5P)  •  2P = Full Day + Full Night (2P)  •  A = Absent (0P)')
+            rule_lbl = tk.Label(f, text=rules, bg=BG, fg='#8ab4ff', font=('Segoe UI', 9, 'bold'),
+                                justify='left', anchor='w', wraplength=900)
+            rule_lbl.pack(anchor='w', fill='x', pady=(7, 0))
+        def resize_labels(ev):
+            if sub_lbl is not None:
+                sub_lbl.configure(wraplength=max(350, ev.width-10))
+            if rule_lbl is not None:
+                rule_lbl.configure(wraplength=max(350, ev.width-10))
+        f.bind('<Configure>', resize_labels, add='+')
 
     # ---------- calculation ----------
     @staticmethod
@@ -1907,7 +1914,8 @@ class WorkerPay(tk.Tk):
         self.clear()
         page_token = self._page_generation
         self.header(f"{e['name']}  •  {e['empid']}",
-                    'Attendance is separated by plot. Every chart automatically shows Day 1 through the last day of the selected month.')
+                    'Attendance is separated by plot. Every chart automatically shows Day 1 through the last day of the selected month.',
+                    show_attendance_key=True)
 
         top = tk.Frame(self.main, bg=BG)
         top.pack(fill='x', padx=26, pady=5)
@@ -2037,7 +2045,7 @@ class WorkerPay(tk.Tk):
         date_var=tk.StringVar(value=f"01.{datetime.strptime(month+'-01','%Y-%m-%d').strftime('%m.%y')}")
         ttk.Entry(form,textvariable=date_var,width=13).grid(row=1,column=0,padx=(10,5),pady=(0,10),sticky='ew')
         tk.Label(form,text='Amount',bg=PANEL2,fg=MUTED,font=('Segoe UI',9,'bold')).grid(row=0,column=1,padx=5,pady=(10,4),sticky='w')
-        amount_var=tk.StringVar();ttk.Entry(form,textvariable=amount_var,width=14).grid(row=1,column=1,padx=5,pady=(0,10),sticky='ew')
+        amount_var=tk.StringVar();ttk.Entry(form,textvariable=amount_var,width=14).grid(row=1,column=1,padx=4,pady=(0,5),sticky='ew')
         tk.Label(form,text='Reason',bg=PANEL2,fg=MUTED,font=('Segoe UI',9,'bold')).grid(row=0,column=2,padx=5,pady=(10,4),sticky='w')
         reason_var=tk.StringVar();ttk.Entry(form,textvariable=reason_var).grid(row=1,column=2,padx=5,pady=(0,10),sticky='ew')
         form.grid_columnconfigure(2,weight=1)
@@ -2154,28 +2162,28 @@ class WorkerPay(tk.Tk):
         root.grid_columnconfigure(0,weight=1,uniform='advance_editor')
         root.grid_columnconfigure(1,weight=1,uniform='advance_editor')
         root.grid_rowconfigure(0,weight=0)
-        root.grid_rowconfigure(1,weight=1)
+        root.grid_rowconfigure(1,weight=1,minsize=180)
 
         # ---------- employee-wide add/edit form ----------
         form=tk.Frame(root,bg=PANEL,highlightbackground=BORDER,highlightthickness=1)
-        form.grid(row=0,column=0,columnspan=2,sticky='ew',pady=(0,10))
+        form.grid(row=0,column=0,columnspan=2,sticky='ew',pady=(0,6))
         form.grid_columnconfigure(0,weight=1)
         form.grid_columnconfigure(1,weight=1)
 
         tk.Label(form,text='ADD / EDIT ADVANCE',bg=PANEL,fg=TEXT,font=('Segoe UI',13,'bold')).grid(
-            row=0,column=0,columnspan=2,sticky='w',padx=20,pady=(15,3))
+            row=0,column=0,columnspan=2,sticky='w',padx=16,pady=(8,2))
         tk.Label(form,text='Choose the exact employee name. The Employee ID is only a confirmation and is filled automatically.',
                  bg=PANEL,fg=MUTED,font=('Segoe UI',9),justify='left').grid(
-            row=1,column=0,columnspan=2,sticky='w',padx=20,pady=(0,10))
+            row=1,column=0,columnspan=2,sticky='w',padx=16,pady=(0,4))
 
         state={'selected_id':None,'employee_id':None}
         vars_={k:tk.StringVar() for k in ('name','empid','date','amount','reason')}
 
         def make_field(row,col,label,key,readonly=False):
             tk.Label(form,text=label,bg=PANEL,fg=TEXT,font=('Segoe UI',10,'bold')).grid(
-                row=row,column=col,sticky='w',padx=18,pady=(6,4))
+                row=row,column=col,sticky='w',padx=14,pady=(3,2))
             ent=ttk.Entry(form,textvariable=vars_[key],font=('Segoe UI',10),state='readonly' if readonly else 'normal')
-            ent.grid(row=row+1,column=col,sticky='ew',padx=18,pady=(0,10),ipady=4)
+            ent.grid(row=row+1,column=col,sticky='ew',padx=14,pady=(0,5),ipady=2)
             return ent
 
         # Exact-name selection is the primary employee field.
@@ -2188,9 +2196,9 @@ class WorkerPay(tk.Tk):
             name_values.append(display)
 
         tk.Label(form,text='Employee Name',bg=PANEL,fg=TEXT,font=('Segoe UI',10,'bold')).grid(
-            row=2,column=0,sticky='w',padx=18,pady=(4,4))
+            row=2,column=0,sticky='w',padx=14,pady=(2,2))
         name_combo=ttk.Combobox(form,textvariable=vars_['name'],values=name_values,state='normal')
-        name_combo.grid(row=3,column=0,sticky='ew',padx=18,pady=(0,10),ipady=4)
+        name_combo.grid(row=3,column=0,sticky='ew',padx=14,pady=(0,5),ipady=2)
 
         make_field(2,1,'Employee ID','empid',True)
         make_field(4,0,'Date (DD.MM.YY)','date')
@@ -2199,14 +2207,14 @@ class WorkerPay(tk.Tk):
         tk.Label(form,text='Reason',bg=PANEL,fg=TEXT,font=('Segoe UI',10,'bold')).grid(
             row=6,column=0,columnspan=2,sticky='w',padx=18,pady=(4,4))
         reason_ent=ttk.Entry(form,textvariable=vars_['reason'],font=('Segoe UI',10))
-        reason_ent.grid(row=7,column=0,columnspan=2,sticky='ew',padx=18,pady=(0,12),ipady=5)
+        reason_ent.grid(row=7,column=0,columnspan=2,sticky='ew',padx=14,pady=(0,5),ipady=2)
 
         note=tk.Label(form,text='Reason: enter anything you want (for example: food, family emergency, transport, personal expense, etc.).',
                       bg=PANEL,fg=MUTED,font=('Segoe UI',9),anchor='w')
-        note.grid(row=8,column=0,columnspan=2,sticky='ew',padx=18,pady=(0,10))
+        note.grid(row=8,column=0,columnspan=2,sticky='ew',padx=14,pady=(0,4))
 
         actions=tk.Frame(form,bg=PANEL)
-        actions.grid(row=9,column=0,columnspan=2,sticky='w',padx=14,pady=(0,15))
+        actions.grid(row=9,column=0,columnspan=2,sticky='w',padx=12,pady=(0,8))
 
         def find_employee():
             raw=vars_['name'].get().strip()
@@ -2355,7 +2363,7 @@ class WorkerPay(tk.Tk):
         filter_labels=[('date_from','Date From'),('date_to','Date To'),('name','Name'),('empid','Employee ID'),
                        ('reason','Reason'),('min','Minimum Amount'),('max','Maximum Amount')]
         for i,(key,label) in enumerate(filter_labels):
-            tk.Label(filter_card,text=label,bg=PANEL,fg=MUTED,font=('Segoe UI',9,'bold')).grid(row=1,column=i,padx=5,pady=(5,3),sticky='w')
+            tk.Label(filter_card,text=label,bg=PANEL,fg=MUTED,font=('Segoe UI',9,'bold')).grid(row=1,column=i,padx=4,pady=(3,2),sticky='w')
             ttk.Entry(filter_card,textvariable=filter_vars[key]).grid(row=2,column=i,padx=5,pady=(0,10),sticky='ew')
 
         # ---------- records ----------
