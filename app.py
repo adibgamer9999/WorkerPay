@@ -868,16 +868,26 @@ class WorkerPay(tk.Tk):
             except tk.TclError: pass
 
     def navigate(self,target,duration=0,key=None):
-        """Switch pages synchronously; never defer navigation behind an animation."""
+        """Build and display the destination page immediately, without animation."""
+        old = getattr(self, 'main', None)
         self._transition_busy = False
         self._in_navigation = True
         try:
             target()
+            new = getattr(self, 'main', None)
             self._page_key = key or getattr(target, '__name__', 'page')
-            try:
-                self.update_idletasks()
-            except Exception:
-                pass
+            if new is not None:
+                try:
+                    new.place_configure(relx=0, rely=0, relwidth=1, relheight=1)
+                    new.lift()
+                    self.update_idletasks()
+                except Exception:
+                    pass
+            if old is not None and old is not new:
+                try:
+                    old.destroy()
+                except Exception:
+                    pass
         finally:
             self._in_navigation = False
             self._transition_busy = False
