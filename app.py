@@ -16,7 +16,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 
 APP_NAME = 'WorkerPay'
-APP_VERSION = '4.5.3.4'
+APP_VERSION = '4.5.3.5'
 
 # Installed program files belong on the Windows system drive (normally C:\Program Files\WorkerPay).
 # User data stays in the user's C: drive AppData location so Program Files can remain read-only.
