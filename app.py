@@ -1654,7 +1654,7 @@ class WorkerPay(tk.Tk):
         month = date.today().strftime('%Y-%m')
         self.open_employee(employee_id, month)
 
-    def employee_editor(self, eid=None):
+    def employee_editor(self, eid=None, return_to_attendance=None):
         self._page_key = 'employee_editor'
         """Full-window, landscape employee editor. Keeps all controls visible."""
         e = self.db.execute('SELECT * FROM employees WHERE id=?', (eid,)).fetchone() if eid else None
@@ -1806,7 +1806,11 @@ class WorkerPay(tk.Tk):
         info_lbl.pack(side='left', fill='x', expand=True, padx=16, pady=9)
 
         def back():
-            self.employees()
+            if return_to_attendance:
+                return_eid, return_month = return_to_attendance
+                self.navigate(lambda: self.open_employee(return_eid, return_month), key='attendance')
+            else:
+                self.employees()
 
         def save():
             try:
@@ -1817,7 +1821,7 @@ class WorkerPay(tk.Tk):
                 datetime.strptime(st, '%Y-%m-%d')
                 if not empid: raise ValueError('Employee ID is required.')
                 if not name: raise ValueError('Name is required.')
-                parsed, seen = [], set()
+                parsed, parsed_items, seen = [], [], set()
                 for item in list(plot_rows):
                     pn = item['pn'].get().strip(); rate_text = item['rr'].get().strip()
                     if not pn and not rate_text: continue
@@ -1827,7 +1831,7 @@ class WorkerPay(tk.Tk):
                     if key in seen: raise ValueError(f'Duplicate plot / place: {pn}')
                     rate = safe_float(rate_text, f'Daily Salary for plot {pn}')
                     if rate < 0: raise ValueError(f'Daily Salary for plot {pn} cannot be negative.')
-                    seen.add(key); parsed.append((pn, rate))
+                    seen.add(key); parsed.append((pn, rate)); parsed_items.append(item)
                 if not parsed: raise ValueError('Add at least one Plot / Place with its Daily Salary.')
                 now = date.today().isoformat()
                 if e:
@@ -1838,7 +1842,7 @@ class WorkerPay(tk.Tk):
                     current_by_id = {int(r['id']): r for r in current}
                     current_by_name = {str(r['plot_no']).casefold(): r for r in current}
                     keep=set()
-                    for item, (pn, rate) in zip(plot_rows, parsed):
+                    for item, (pn, rate) in zip(parsed_items, parsed):
                         # Existing row IDs take priority: changing a plot number must
                         # rename the existing plot, preserving attendance and rate history.
                         plot_id = item.get('plot_id')
@@ -1870,7 +1874,11 @@ class WorkerPay(tk.Tk):
                 self.audit('EDIT_EMPLOYEE' if e else 'ADD_EMPLOYEE','employee',eid2,{'empid':empid,'name':name,'plots':parsed})
                 self.db.commit()
                 getattr(self,'_rate_month_cache',{}).clear()
-                self.navigate(self.employees)
+                if return_to_attendance:
+                    return_eid, return_month = return_to_attendance
+                    self.navigate(lambda: self.open_employee(return_eid, return_month), key='attendance')
+                else:
+                    self.navigate(self.employees)
             except sqlite3.IntegrityError:
                 messagebox.showerror('Employee', 'Employee ID must be unique. Use EMP001 / EMP010 / EMP1000 format. Plot / Place names must be unique within the same worker.', parent=self)
             except Exception as ex:
@@ -1935,7 +1943,7 @@ class WorkerPay(tk.Tk):
         month_entry.pack(side='left', padx=6)
         tk.Label(top, text='Change the month and the attendance charts refresh automatically.',
                  bg=BG, fg=MUTED, font=('Segoe UI', 9)).pack(side='left', padx=8)
-        ttk.Button(top, text='Edit Employee / Plots', command=lambda: self.navigate(lambda: self.employee_editor(eid), key='employee_editor')).pack(side='right', padx=6)
+        ttk.Button(top, text='Edit Employee / Plots', command=lambda: self.navigate(lambda: self.employee_editor(eid, return_to_attendance=(eid, mv.get())), key='employee_editor')).pack(side='right', padx=6)
         ttk.Button(top, text='Back to Employees', style='Accent.TButton', command=self.back_to_employees).pack(side='right')
 
         scroll_holder = tk.Frame(self.main, bg=BG)
