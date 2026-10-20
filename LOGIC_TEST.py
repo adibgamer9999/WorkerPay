@@ -53,6 +53,31 @@ check('October has 31 days', calendar.monthrange(2026,10)[1]==31)
 con.close()
 import shutil; shutil.rmtree(root,ignore_errors=True)
 
+# Regression checks for the employee plot editor: editor rows must remain paired
+# with their parsed values when blank rows are skipped.
+import inspect
+_editor_source = inspect.getsource(WorkerPay.employee_editor)
+check('plot editor pairs parsed values with their original row',
+      'parsed_items.append(item)' in _editor_source and
+      'zip(parsed_items, parsed)' in _editor_source,
+      'blank rows cannot shift plot IDs onto another plot')
+check('plot editor hides inactive historical plots',
+      'existing = self.plots(eid) if e else []' in _editor_source,
+      'inactive plot history remains stored but is not re-added to the form')
+check('attendance editor can restore the originating month',
+      'return_to_attendance=(eid, mv.get())' in _editor_source and
+      'self.open_employee(return_eid, return_month)' in _editor_source,
+      'save/cancel from attendance returns to the same employee/month')
+
+# Model the reported regression: an old inactive plot and its replacement both
+# exist in the database. Only the active replacement should be shown in the form.
+con.execute("UPDATE plots SET active=0 WHERE id=?", (p1,))
+active_plot_names = [r['plot_no'] for r in con.execute(
+    "SELECT plot_no FROM plots WHERE employee_id=? AND active=1 ORDER BY id", (eid,))]
+check('inactive old plot does not reappear beside its replacement',
+      active_plot_names == ['1356', 'Third Plot'],
+      f'active editor rows: {active_plot_names}')
+
 fails=[x for x in checks if not x[1]]
 print(f'\nTOTAL CHECKS: {len(checks)} | FAILURES: {len(fails)}')
 if fails: raise SystemExit(1)
