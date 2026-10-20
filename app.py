@@ -1788,7 +1788,7 @@ class WorkerPay(tk.Tk):
                 self.after_idle(lambda: rows_canvas.yview_moveto(1.0))
             return holder
 
-        existing = self.plots(eid, include_inactive=True) if e else []
+        existing = self.plots(eid) if e else []  # Show active plots only; inactive history stays in the database.
         if existing:
             for p in existing: add_plot_row(p['plot_no'], p['daily_rate'], plot_id=p['id'])
         else:
