@@ -1,9 +1,12 @@
-name: WorkerPay 4.5.3.9 — Plot Identity & Attendance Preservation — 2026-10-12
-run-name: WorkerPay 4.5.3.9 — Safe Plot Editing & Windows Release — 2026-10-12
+name: WorkerPay 4.5.4.0 — Plot Editor & Attendance Navigation Fix — 2026-10-20
+run-name: WorkerPay 4.5.4.0 — Plot Editor Regression Checks & Windows Release — 2026-10-20
 
 on:
   workflow_dispatch:
   push:
+    branches:
+      - main
+  pull_request:
     branches:
       - main
 
@@ -50,7 +53,7 @@ jobs:
 
           $versionText = (Get-Content "VERSION.txt" -Raw).Trim()
           if ($versionText -notmatch '^WorkerPay\s+(\d+\.\d+\.\d+\.\d+)$') {
-            throw "VERSION.txt must contain a four-part version like 'WorkerPay 4.5.3.9'. Found: $versionText"
+            throw "VERSION.txt must contain a four-part version like 'WorkerPay 4.5.4.0'. Found: $versionText"
           }
 
           $appVersion = $Matches[1]
