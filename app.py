@@ -8,6 +8,7 @@ import time
 import json
 import hashlib
 import logging
+import re
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
