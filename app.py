@@ -1491,11 +1491,8 @@ class WorkerPay(tk.Tk):
             page['job']=self.after(160,lambda:load(True))
         for v in (name_f,empid_f,plot_f):v.trace_add('write',schedule)
         def open_dashboard_id_cell(event):
-            # Only react to a real data cell in the Employee ID column.
-            if tree.identify_region(event.x, event.y) != 'cell':
-                return
-            if tree.identify_column(event.x) != '#1':
-                return
+            # Resolve the row under the pointer on every double-click. Allow any
+            # data column so hit-testing differences do not block repeat opens.
             row_id = tree.identify_row(event.y)
             if not row_id:
                 return
@@ -1612,11 +1609,8 @@ class WorkerPay(tk.Tk):
         ttk.Button(actions,text='Edit Selected',command=lambda:self.edit_selected(tree)).pack(side='left',padx=6)
         ttk.Button(actions,text='Remove Selected',command=lambda:self.remove_selected(tree)).pack(side='left',padx=6)
         def open_employee_id_cell(event):
-            # Match the actual ID cell, not a row heading, blank area, or scrollbar.
-            if tree.identify_region(event.x, event.y) != 'cell':
-                return
-            if tree.identify_column(event.x) != '#1':
-                return
+            # Resolve the row under the pointer on every double-click. Allow any
+            # data column so hit-testing differences do not block repeat opens.
             row_id = tree.identify_row(event.y)
             if not row_id:
                 return
@@ -1793,7 +1787,7 @@ class WorkerPay(tk.Tk):
                 self.after_idle(lambda: rows_canvas.yview_moveto(1.0))
             return holder
 
-        existing = self.plots(eid, include_inactive=True) if e else []
+        existing = self.plots(eid) if e else []
         if existing:
             for p in existing: add_plot_row(p['plot_no'], p['daily_rate'], plot_id=p['id'])
         else:
