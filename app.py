@@ -618,8 +618,7 @@ class WorkerPay(tk.Tk):
                 employee_id INTEGER NOT NULL,
                 plot_no TEXT NOT NULL,
                 daily_rate REAL NOT NULL DEFAULT 0,
-                active INTEGER DEFAULT 1,
-                UNIQUE(employee_id, plot_no)
+                active INTEGER DEFAULT 1
             )''')
 
         pc = self.columns('plots')
