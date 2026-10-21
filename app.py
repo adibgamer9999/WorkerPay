@@ -1505,7 +1505,9 @@ class WorkerPay(tk.Tk):
                 return
             tree.selection_set(row_id)
             tree.focus(row_id)
-            self.open_employee(employee_id, month)
+            # Route through the page navigator instead of destroying the Treeview
+            # from inside its own double-click callback. This keeps repeat opens reliable.
+            self.navigate(lambda eid=employee_id, m=month: self.open_employee(eid, m), duration=0, key=f'attendance:{employee_id}')
             return 'break'
         tree.unbind('<Double-1>')
         tree.bind('<Double-1>', open_dashboard_id_cell, add=False)
@@ -1624,7 +1626,9 @@ class WorkerPay(tk.Tk):
                 return
             tree.selection_set(row_id)
             tree.focus(row_id)
-            self.open_employee(employee_id, date.today().strftime('%Y-%m'))
+            # Navigate safely; don't destroy the Treeview while handling its own event.
+            month = date.today().strftime('%Y-%m')
+            self.navigate(lambda eid=employee_id, m=month: self.open_employee(eid, m), duration=0, key=f'attendance:{employee_id}')
             return 'break'
         tree.unbind('<Double-1>')
         tree.bind('<Double-1>', open_employee_id_cell, add=False)
