@@ -1879,8 +1879,18 @@ class WorkerPay(tk.Tk):
                     self.navigate(return_to_attendance, key='attendance')
                 else:
                     self.navigate(self.employees)
-            except sqlite3.IntegrityError:
-                messagebox.showerror('Employee', 'Employee ID must be unique. Use EMP001 / EMP010 / EMP1000 format. Plot / Place names must be unique within the same worker.', parent=self)
+            except sqlite3.IntegrityError as ex:
+                # Report the actual conflicting field instead of blaming plot names
+                # for every SQLite uniqueness error. Plot names are scoped to this
+                # employee only; the same name (including N/A) is valid for other workers.
+                conflict = str(ex).lower()
+                if 'employees.empid' in conflict or 'employees.emp_number' in conflict:
+                    detail = f'Employee ID {empid} is already in use. Please choose a different Employee ID.'
+                elif 'plots.employee_id, plots.plot_no' in conflict or 'plots.employee_id,plot_no' in conflict:
+                    detail = 'This worker already has a plot/place with that exact name. The same plot/place name can be used for other workers.'
+                else:
+                    detail = f'Could not save because of a database constraint: {ex}'
+                messagebox.showerror('Employee', detail, parent=self)
             except Exception as ex:
                 messagebox.showerror('Employee', str(ex), parent=self)
 
