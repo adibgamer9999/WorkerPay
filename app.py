@@ -398,7 +398,6 @@ class WorkerPay(tk.Tk):
             plot_no TEXT NOT NULL,
             daily_rate REAL NOT NULL DEFAULT 0,
             active INTEGER DEFAULT 1,
-            UNIQUE(employee_id, plot_no),
             FOREIGN KEY(employee_id) REFERENCES employees(id) ON DELETE CASCADE
         );
         CREATE TABLE IF NOT EXISTS plot_rate_history(
@@ -566,6 +565,38 @@ class WorkerPay(tk.Tk):
 
     def migrate_schema(self):
         """Open older LaborPay / EmployeePay / WorkerPay backups safely."""
+        # Plot/place labels are descriptive, not identifiers. Remove the legacy
+        # UNIQUE(employee_id, plot_no) table constraint so workers may use N/A
+        # or repeat a label when the exact plot number is unknown.
+        self.db.commit()
+        self.db.execute('PRAGMA foreign_keys=OFF')
+        plot_columns = self.columns('plots')
+        if plot_columns:
+            unique_plot_name = False
+            for idx in self.db.execute('PRAGMA index_list(plots)').fetchall():
+                if int(idx['unique']):
+                    cols = [str(c['name']) for c in self.db.execute(
+                        'PRAGMA index_info("' + str(idx['name']).replace('"', '""') + '")'
+                    ).fetchall()]
+                    if cols == ['employee_id', 'plot_no']:
+                        unique_plot_name = True
+                        break
+            if unique_plot_name:
+                self.db.execute('''CREATE TABLE plots_without_name_unique(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    employee_id INTEGER NOT NULL,
+                    plot_no TEXT NOT NULL,
+                    daily_rate REAL NOT NULL DEFAULT 0,
+                    active INTEGER DEFAULT 1,
+                    FOREIGN KEY(employee_id) REFERENCES employees(id) ON DELETE CASCADE
+                )''')
+                self.db.execute('''INSERT INTO plots_without_name_unique
+                    (id,employee_id,plot_no,daily_rate,active)
+                    SELECT id,employee_id,plot_no,daily_rate,active FROM plots''')
+                self.db.execute('DROP TABLE plots')
+                self.db.execute('ALTER TABLE plots_without_name_unique RENAME TO plots')
+                self.db.commit()
+        self.db.execute('PRAGMA foreign_keys=ON')
         ec = self.columns('employees')
         if 'emp_number' not in ec:
             self.db.execute('ALTER TABLE employees ADD COLUMN emp_number INTEGER NOT NULL DEFAULT 0')
@@ -1825,11 +1856,11 @@ class WorkerPay(tk.Tk):
                     if not pn and not rate_text: continue
                     if not pn: raise ValueError('Every plot row must contain a Plot / Place.')
                     if any(ch in pn for ch in '\t\r\n'): raise ValueError('Plot / Place cannot contain line breaks.')
-                    key = pn.casefold()
-                    if key in seen: raise ValueError(f'Duplicate plot / place: {pn}')
+                    # Plot/place labels are free-form descriptions, not unique IDs.
+                    # Repeated values such as N/A are allowed for the same worker too.
                     rate = safe_float(rate_text, f'Daily Salary for plot {pn}')
                     if rate < 0: raise ValueError(f'Daily Salary for plot {pn} cannot be negative.')
-                    seen.add(key); parsed.append((pn, rate)); parsed_items.append(item)
+                    parsed.append((pn, rate)); parsed_items.append(item)
                 if not parsed: raise ValueError('Add at least one Plot / Place with its Daily Salary.')
                 now = date.today().isoformat()
                 if e:
@@ -1838,7 +1869,6 @@ class WorkerPay(tk.Tk):
                                     (empid, emp_number, name, st, int(active.get()), eid2))
                     current = self.db.execute('SELECT * FROM plots WHERE employee_id=?', (eid2,)).fetchall()
                     current_by_id = {int(r['id']): r for r in current}
-                    current_by_name = {str(r['plot_no']).casefold(): r for r in current}
                     keep=set()
                     # Keep each valid plot paired with the exact editor row it came from.
                     # Blank rows are skipped during parsing, so zipping parsed values against
@@ -1848,8 +1878,6 @@ class WorkerPay(tk.Tk):
                         # rename the existing plot, preserving attendance and rate history.
                         plot_id = item.get('plot_id')
                         old = current_by_id.get(int(plot_id)) if plot_id is not None else None
-                        if old is None:
-                            old = current_by_name.get(pn.casefold())
                         if old:
                             keep.add(int(old['id']))
                             rate_changed = abs(float(old['daily_rate'])-rate) > 1e-9
